@@ -293,16 +293,28 @@ function PanelContent({
         ) : (
           <div className="flex gap-3">
             <div className="flex-1">
-              <label className="text-xs text-gray-500">Durée (h)</label>
-              <input
-                type="number"
-                min={0.5}
-                max={12}
-                step={0.5}
-                value={timeHours}
-                onChange={(e) => setTimeHours(+e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+              <label className="text-xs text-gray-500">Durée</label>
+              <div className="flex items-center gap-1">
+                <input
+                  type="number"
+                  min={0}
+                  max={12}
+                  value={Math.floor(timeHours)}
+                  onChange={(e) => setTimeHours(Math.max(0, +e.target.value) + (timeHours % 1))}
+                  className="w-12 border border-gray-300 rounded-lg px-2 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <span className="text-gray-500 text-sm">h</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={55}
+                  step={5}
+                  value={Math.round((timeHours % 1) * 60 / 5) * 5}
+                  onChange={(e) => setTimeHours(Math.floor(timeHours) + Math.min(55, Math.max(0, +e.target.value)) / 60)}
+                  className="w-12 border border-gray-300 rounded-lg px-2 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <span className="text-gray-400 text-xs">min</span>
+              </div>
             </div>
             {sport === "foot-walking" ? (
               <div className="flex-1">
