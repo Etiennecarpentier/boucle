@@ -5,6 +5,14 @@ import AddressInput from "./AddressInput";
 import type { LatLng, Sport, RouteParams } from "@/lib/types";
 
 interface Props {
+  startText: string;
+  startCoords: LatLng | null;
+  onStartChange: (text: string, coords?: LatLng) => void;
+  endText: string;
+  endCoords: LatLng | null;
+  onEndChange: (text: string, coords?: LatLng) => void;
+  mapClickMode: "start" | "end" | null;
+  onSetMapClickMode: (mode: "start" | "end" | null) => void;
   onGenerate: (params: RouteParams) => void;
   onRegenerate: () => void;
   onExportGpx: () => void;
@@ -15,43 +23,33 @@ interface Props {
 }
 
 export default function ControlPanel({
-  onGenerate,
-  onRegenerate,
-  onExportGpx,
-  hasRoute,
-  loading,
-  error,
-  canRegenerate,
+  startText, startCoords, onStartChange,
+  endText, endCoords, onEndChange,
+  mapClickMode, onSetMapClickMode,
+  onGenerate, onRegenerate, onExportGpx,
+  hasRoute, loading, error, canRegenerate,
 }: Props) {
   const [sport, setSport] = useState<Sport>("cycling-road");
-  const [startText, setStartText] = useState("");
-  const [endText, setEndText] = useState("");
-  const [startCoords, setStartCoords] = useState<LatLng | null>(null);
-  const [endCoords, setEndCoords] = useState<LatLng | null>(null);
   const [distanceKm, setDistanceKm] = useState<number>(50);
   const [useTime, setUseTime] = useState(false);
   const [timeHours, setTimeHours] = useState<number>(2);
-  const [speedKmh, setSpeedKmh] = useState<number>(25);   // vélo
-  const [paceMin, setPaceMin] = useState<number>(5);       // course : minutes/km
-  const [paceSec, setPaceSec] = useState<number>(30);      // course : secondes/km
+  const [speedKmh, setSpeedKmh] = useState<number>(25);
+  const [paceMin, setPaceMin] = useState<number>(5);
+  const [paceSec, setPaceSec] = useState<number>(30);
   const [steepnessLevel, setSteepnessLevel] = useState<0 | 1 | 2 | 3 | null>(null);
   const [isOpen, setIsOpen] = useState(true);
 
   function handleLocate() {
     if (!navigator.geolocation) return;
     navigator.geolocation.getCurrentPosition((pos) => {
-      const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-      setStartCoords(coords);
-      setStartText("Ma position");
+      onStartChange("Ma position", { lat: pos.coords.latitude, lng: pos.coords.longitude });
     });
   }
 
   function handleLocateEnd() {
     if (!navigator.geolocation) return;
     navigator.geolocation.getCurrentPosition((pos) => {
-      const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-      setEndCoords(coords);
-      setEndText("Ma position");
+      onEndChange("Ma position", { lat: pos.coords.latitude, lng: pos.coords.longitude });
     });
   }
 
@@ -61,7 +59,7 @@ export default function ControlPanel({
 
     const effectiveDistanceKm = useTime
       ? sport === "foot-walking"
-        ? timeHours * 60 / (paceMin + paceSec / 60)   // durée × vitesse convertie depuis l'allure
+        ? timeHours * 60 / (paceMin + paceSec / 60)
         : timeHours * speedKmh
       : distanceKm;
 
@@ -81,46 +79,29 @@ export default function ControlPanel({
 
   const isLoop = !endCoords || (endCoords.lat === startCoords?.lat && endCoords.lng === startCoords?.lng);
 
+  const sharedProps = {
+    sport, setSport: handleSportChange,
+    startText, startCoords, onStartChange,
+    endText, endCoords, onEndChange,
+    handleLocate, handleLocateEnd,
+    mapClickMode, onSetMapClickMode,
+    distanceKm, setDistanceKm,
+    useTime, setUseTime,
+    timeHours, setTimeHours,
+    speedKmh, setSpeedKmh,
+    paceMin, setPaceMin,
+    paceSec, setPaceSec,
+    steepnessLevel, setSteepnessLevel,
+    isLoop,
+    onSubmit: handleSubmit, onRegenerate, onExportGpx,
+    hasRoute, loading, error, canRegenerate,
+  };
+
   return (
     <>
       {/* Desktop sidebar */}
       <aside className="hidden md:flex flex-col w-80 h-full bg-white border-r border-gray-200 shadow-md z-10 overflow-y-auto">
-        <PanelContent
-          sport={sport}
-          setSport={handleSportChange}
-          startText={startText}
-          setStartText={setStartText}
-          setStartCoords={setStartCoords}
-          endText={endText}
-          setEndText={setEndText}
-          setEndCoords={setEndCoords}
-          handleLocate={handleLocate}
-          handleLocateEnd={handleLocateEnd}
-          distanceKm={distanceKm}
-          setDistanceKm={setDistanceKm}
-          useTime={useTime}
-          setUseTime={setUseTime}
-          timeHours={timeHours}
-          setTimeHours={setTimeHours}
-          speedKmh={speedKmh}
-          setSpeedKmh={setSpeedKmh}
-          paceMin={paceMin}
-          setPaceMin={setPaceMin}
-          paceSec={paceSec}
-          setPaceSec={setPaceSec}
-          steepnessLevel={steepnessLevel}
-          setSteepnessLevel={setSteepnessLevel}
-          isLoop={isLoop}
-          onSubmit={handleSubmit}
-          onRegenerate={onRegenerate}
-          onExportGpx={onExportGpx}
-          hasRoute={hasRoute}
-          loading={loading}
-          error={error}
-          canRegenerate={canRegenerate}
-          startCoords={startCoords}
-          endCoords={endCoords}
-        />
+        <PanelContent {...sharedProps} />
       </aside>
 
       {/* Mobile bottom sheet */}
@@ -139,42 +120,7 @@ export default function ControlPanel({
         </button>
         {isOpen && (
           <div className="bg-white max-h-[70vh] overflow-y-auto shadow-lg border-t border-gray-200">
-            <PanelContent
-              sport={sport}
-              setSport={handleSportChange}
-              startText={startText}
-              setStartText={setStartText}
-              setStartCoords={setStartCoords}
-              endText={endText}
-              setEndText={setEndText}
-              endCoords={endCoords}
-              setEndCoords={setEndCoords}
-              handleLocate={handleLocate}
-              handleLocateEnd={handleLocateEnd}
-              distanceKm={distanceKm}
-              setDistanceKm={setDistanceKm}
-              useTime={useTime}
-              setUseTime={setUseTime}
-              timeHours={timeHours}
-              setTimeHours={setTimeHours}
-              speedKmh={speedKmh}
-              setSpeedKmh={setSpeedKmh}
-              paceMin={paceMin}
-              setPaceMin={setPaceMin}
-              paceSec={paceSec}
-              setPaceSec={setPaceSec}
-              steepnessLevel={steepnessLevel}
-              setSteepnessLevel={setSteepnessLevel}
-              isLoop={isLoop}
-              onSubmit={handleSubmit}
-              onRegenerate={onRegenerate}
-              onExportGpx={onExportGpx}
-              hasRoute={hasRoute}
-              loading={loading}
-              error={error}
-              canRegenerate={canRegenerate}
-              startCoords={startCoords}
-            />
+            <PanelContent {...sharedProps} />
           </div>
         )}
       </div>
@@ -186,14 +132,15 @@ interface PanelContentProps {
   sport: Sport;
   setSport: (s: Sport) => void;
   startText: string;
-  setStartText: (v: string) => void;
-  setStartCoords: (c: LatLng | null) => void;
+  startCoords: LatLng | null;
+  onStartChange: (text: string, coords?: LatLng) => void;
   endText: string;
-  setEndText: (v: string) => void;
   endCoords: LatLng | null;
-  setEndCoords: (c: LatLng | null) => void;
+  onEndChange: (text: string, coords?: LatLng) => void;
   handleLocate: () => void;
   handleLocateEnd: () => void;
+  mapClickMode: "start" | "end" | null;
+  onSetMapClickMode: (mode: "start" | "end" | null) => void;
   distanceKm: number;
   setDistanceKm: (v: number) => void;
   useTime: boolean;
@@ -216,14 +163,14 @@ interface PanelContentProps {
   loading: boolean;
   error: string | null;
   canRegenerate: boolean;
-  startCoords: LatLng | null;
 }
 
 function PanelContent({
   sport, setSport,
-  startText, setStartText, setStartCoords,
-  endText, setEndText, endCoords, setEndCoords,
+  startText, startCoords, onStartChange,
+  endText, endCoords, onEndChange,
   handleLocate, handleLocateEnd,
+  mapClickMode, onSetMapClickMode,
   distanceKm, setDistanceKm,
   useTime, setUseTime,
   timeHours, setTimeHours,
@@ -233,7 +180,7 @@ function PanelContent({
   steepnessLevel, setSteepnessLevel,
   isLoop,
   onSubmit, onRegenerate, onExportGpx,
-  hasRoute, loading, error, canRegenerate, startCoords,
+  hasRoute, loading, error, canRegenerate,
 }: PanelContentProps) {
   const effectiveDistance = useTime
     ? sport === "foot-walking"
@@ -273,25 +220,29 @@ function PanelContent({
 
       {/* Points */}
       <AddressInput
-        label="Point de départ"
+        label="Départ"
         placeholder="Adresse, ville…"
         value={startText}
-        coords={startCoords ?? null}
-        onChange={(v, c) => { setStartText(v); setStartCoords(c ?? null); }}
+        coords={startCoords}
+        onChange={onStartChange}
         onLocate={handleLocate}
+        onPin={() => onSetMapClickMode(mapClickMode === "start" ? null : "start")}
+        pinActive={mapClickMode === "start"}
       />
       <AddressInput
-        label="Point d'arrivée (laisser vide pour une boucle)"
+        label="Arrivée"
         placeholder="Même départ = boucle"
         value={endText}
-        coords={endCoords ?? null}
-        onChange={(v, c) => { setEndText(v); setEndCoords(c ?? null); }}
+        coords={endCoords}
+        onChange={onEndChange}
         onLocate={handleLocateEnd}
+        onPin={() => onSetMapClickMode(mapClickMode === "end" ? null : "end")}
+        pinActive={mapClickMode === "end"}
       />
 
       {isLoop && startCoords && (
         <p className="text-xs text-blue-600 bg-blue-50 rounded-lg px-3 py-2">
-          ↺ Mode boucle — l'itinéraire repart du même point
+          ↺ Mode boucle — l&apos;itinéraire repart du même point
         </p>
       )}
 

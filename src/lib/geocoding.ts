@@ -4,20 +4,70 @@ export interface GeocodingResult {
   lng: number;
 }
 
-const ORS_BASE = "https://api.openrouteservice.org";
+const NOMINATIM = "https://nominatim.openstreetmap.org";
+
+interface NominatimAddress {
+  house_number?: string;
+  road?: string;
+  postcode?: string;
+  city?: string;
+  town?: string;
+  village?: string;
+  municipality?: string;
+  name?: string;
+}
+
+function formatAddress(addr: NominatimAddress, fallback: string): string {
+  const street = addr.house_number && addr.road
+    ? `${addr.house_number} ${addr.road}`
+    : addr.road ?? addr.name ?? null;
+  const city = addr.city ?? addr.town ?? addr.village ?? addr.municipality ?? null;
+  const postcode = addr.postcode ?? null;
+
+  const parts: string[] = [];
+  if (street) parts.push(street);
+  if (postcode && city) parts.push(`${postcode} ${city}`);
+  else if (city) parts.push(city);
+  else if (postcode) parts.push(postcode);
+
+  return parts.length > 0 ? parts.join(", ") : fallback;
+}
 
 export async function autocomplete(query: string): Promise<GeocodingResult[]> {
-  const apiKey = process.env.NEXT_PUBLIC_ORS_API_KEY;
-  if (!apiKey || apiKey === "your_ors_api_key_here" || query.length < 3) return [];
+  if (query.length < 3) return [];
 
-  const url = `${ORS_BASE}/geocode/autocomplete?api_key=${apiKey}&text=${encodeURIComponent(query)}&size=7&lang=fr&boundary.country=FRA`;
-  const res = await fetch(url);
+  const params = new URLSearchParams({
+    q: query,
+    format: "json",
+    limit: "8",
+    addressdetails: "1",
+    "accept-language": "fr",
+  });
+
+  const res = await fetch(`${NOMINATIM}/search?${params}`);
   if (!res.ok) return [];
 
   const data = await res.json();
-  return (data.features ?? []).map((f: { properties: { label: string }; geometry: { coordinates: [number, number] } }) => ({
-    label: f.properties.label,
-    lat: f.geometry.coordinates[1],
-    lng: f.geometry.coordinates[0],
+  return data.map((item: { display_name: string; address: NominatimAddress; lat: string; lon: string }) => ({
+    label: formatAddress(item.address, item.display_name),
+    lat: parseFloat(item.lat),
+    lng: parseFloat(item.lon),
   }));
+}
+
+export async function reverseGeocode(lat: number, lng: number): Promise<string> {
+  const params = new URLSearchParams({
+    lat: String(lat),
+    lon: String(lng),
+    format: "json",
+    addressdetails: "1",
+    "accept-language": "fr",
+    zoom: "16",
+  });
+
+  const res = await fetch(`${NOMINATIM}/reverse?${params}`);
+  if (!res.ok) return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+
+  const data = await res.json();
+  return formatAddress(data.address ?? {}, data.display_name ?? `${lat.toFixed(5)}, ${lng.toFixed(5)}`);
 }

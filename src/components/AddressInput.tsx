@@ -11,9 +11,11 @@ interface Props {
   coords: LatLng | null;
   onChange: (value: string, coords?: LatLng) => void;
   onLocate?: () => void;
+  onPin?: () => void;
+  pinActive?: boolean;
 }
 
-export default function AddressInput({ label, placeholder, value, coords, onChange, onLocate }: Props) {
+export default function AddressInput({ label, placeholder, value, coords, onChange, onLocate, onPin, pinActive }: Props) {
   const [suggestions, setSuggestions] = useState<GeocodingResult[]>([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -31,7 +33,6 @@ export default function AddressInput({ label, placeholder, value, coords, onChan
   }, []);
 
   function handleChange(text: string) {
-    // Dès que l'utilisateur retape, les coordonnées validées sont effacées
     onChange(text, undefined);
     setOpen(false);
 
@@ -51,7 +52,6 @@ export default function AddressInput({ label, placeholder, value, coords, onChan
   }
 
   function handleSelect(e: React.MouseEvent, r: GeocodingResult) {
-    // preventDefault empêche l'input de perdre le focus avant que la sélection soit traitée
     e.preventDefault();
     onChange(r.label, { lat: r.lat, lng: r.lng });
     setSuggestions([]);
@@ -79,7 +79,6 @@ export default function AddressInput({ label, placeholder, value, coords, onChan
                 : "border-gray-300 focus:ring-blue-500"
             }`}
           />
-          {/* Indicateur d'état */}
           <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none">
             {loading && (
               <svg className="animate-spin w-3.5 h-3.5 text-gray-400" viewBox="0 0 24 24" fill="none">
@@ -94,11 +93,12 @@ export default function AddressInput({ label, placeholder, value, coords, onChan
             )}
           </div>
         </div>
+
         {onLocate && (
           <button
             type="button"
             onClick={onLocate}
-            title="Ma position"
+            title="Ma position GPS"
             className="px-3 py-2 rounded-lg bg-gray-100 hover:bg-blue-50 border border-gray-300 text-gray-600 hover:text-blue-600 transition-colors shrink-0"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
@@ -106,9 +106,25 @@ export default function AddressInput({ label, placeholder, value, coords, onChan
             </svg>
           </button>
         )}
+
+        {onPin && (
+          <button
+            type="button"
+            onClick={onPin}
+            title="Placer sur la carte"
+            className={`px-3 py-2 rounded-lg border transition-colors shrink-0 ${
+              pinActive
+                ? "bg-blue-600 border-blue-600 text-white"
+                : "bg-gray-100 hover:bg-blue-50 border-gray-300 text-gray-600 hover:text-blue-600"
+            }`}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M20.5 3l-.16.03L15 5.1 9 3 3.36 4.9c-.21.07-.36.25-.36.48V20.5c0 .28.22.5.5.5l.16-.03L9 18.9l6 2.1 5.64-1.9c.21-.07.36-.25.36-.48V3.5c0-.28-.22-.5-.5-.5zM15 19l-6-2.11V5l6 2.11V19z"/>
+            </svg>
+          </button>
+        )}
       </div>
 
-      {/* Dropdown des suggestions — z-[9999] pour passer au-dessus de tout */}
       {open && suggestions.length > 0 && (
         <ul className="absolute z-[9999] w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-56 overflow-y-auto">
           {suggestions.map((s, i) => (

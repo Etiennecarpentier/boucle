@@ -7,6 +7,7 @@ import RouteMetrics from "@/components/RouteMetrics";
 import type { LatLng, RouteParams, RouteResult } from "@/lib/types";
 import { fetchRoute, randomWaypoint } from "@/lib/routing";
 import { downloadGpx } from "@/lib/gpx";
+import { reverseGeocode } from "@/lib/geocoding";
 
 // Leaflet needs to be client-side only
 const MapView = dynamic(() => import("@/components/MapView"), { ssr: false });
@@ -19,6 +20,16 @@ export default function HomePage() {
   const [hoverPoint, setHoverPoint] = useState<LatLng | null>(null);
   const lastParamsRef = useRef<RouteParams | null>(null);
   const regenerationCountRef = useRef(0);
+
+  const [startText, setStartText] = useState("");
+  const [startCoords, setStartCoords] = useState<LatLng | null>(null);
+  const [endText, setEndText] = useState("");
+  const [endCoords, setEndCoords] = useState<LatLng | null>(null);
+  const [mapClickMode, setMapClickMode] = useState<"start" | "end" | null>(null);
+
+  // Ref used by handleMapClick to always read the latest mapClickMode without recreating the callback
+  const mapClickModeRef = useRef<"start" | "end" | null>(null);
+  mapClickModeRef.current = mapClickMode;
 
   const generate = useCallback(async (params: RouteParams) => {
     setLoading(true);
@@ -63,12 +74,36 @@ export default function HomePage() {
     downloadGpx(route);
   }
 
-  const startCoords = lastParamsRef.current?.start ?? null;
-  const endCoords = lastParamsRef.current?.end ?? null;
+  const handleMapClick = useCallback(async (latlng: LatLng) => {
+    const mode = mapClickModeRef.current;
+    if (!mode) return;
+    setMapClickMode(null);
+
+    const placeholder = `${latlng.lat.toFixed(5)}, ${latlng.lng.toFixed(5)}`;
+    if (mode === "start") {
+      setStartCoords(latlng);
+      setStartText(placeholder);
+    } else {
+      setEndCoords(latlng);
+      setEndText(placeholder);
+    }
+
+    const label = await reverseGeocode(latlng.lat, latlng.lng);
+    if (mode === "start") setStartText(label);
+    else setEndText(label);
+  }, []);
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-gray-100">
       <ControlPanel
+        startText={startText}
+        startCoords={startCoords}
+        onStartChange={(text, coords) => { setStartText(text); setStartCoords(coords ?? null); }}
+        endText={endText}
+        endCoords={endCoords}
+        onEndChange={(text, coords) => { setEndText(text); setEndCoords(coords ?? null); }}
+        mapClickMode={mapClickMode}
+        onSetMapClickMode={setMapClickMode}
         onGenerate={generate}
         onRegenerate={regenerate}
         onExportGpx={handleExportGpx}
@@ -81,7 +116,14 @@ export default function HomePage() {
       {/* Map area */}
       <main className="flex-1 flex flex-col min-h-0 relative">
         <div className="flex-1 min-h-0">
-          <MapView route={route} start={startCoords} end={endCoords} hoverPoint={hoverPoint} />
+          <MapView
+            route={route}
+            start={startCoords}
+            end={endCoords}
+            hoverPoint={hoverPoint}
+            onMapClick={handleMapClick}
+            mapClickMode={mapClickMode}
+          />
         </div>
 
         {/* Route metrics + elevation profile */}

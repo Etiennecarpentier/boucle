@@ -9,9 +9,9 @@ interface Props {
   end: LatLng | null;
   hoverPoint?: LatLng | null;
   onMapClick?: (latlng: LatLng) => void;
+  mapClickMode?: "start" | "end" | null;
 }
 
-/** Calcule le cap en degrés entre deux points (0° = nord, sens horaire) */
 function bearing(a: LatLng, b: LatLng): number {
   const lat1 = (a.lat * Math.PI) / 180;
   const lat2 = (b.lat * Math.PI) / 180;
@@ -21,11 +21,8 @@ function bearing(a: LatLng, b: LatLng): number {
   return ((Math.atan2(x, y) * 180) / Math.PI + 360) % 360;
 }
 
-/** Sélectionne ~N points équidistants le long de la route pour placer les flèches */
 function sampleArrowPoints(coords: LatLng[], count: number): { point: LatLng; angle: number }[] {
   if (coords.length < 2) return [];
-
-  // Calcule les distances cumulées
   const cumDist: number[] = [0];
   for (let i = 1; i < coords.length; i++) {
     const dx = coords[i].lng - coords[i - 1].lng;
@@ -34,11 +31,9 @@ function sampleArrowPoints(coords: LatLng[], count: number): { point: LatLng; an
   }
   const total = cumDist[cumDist.length - 1];
   const step = total / (count + 1);
-
   const result: { point: LatLng; angle: number }[] = [];
   for (let k = 1; k <= count; k++) {
     const target = step * k;
-    // Trouve le segment correspondant
     let i = 1;
     while (i < cumDist.length - 1 && cumDist[i] < target) i++;
     const t = (target - cumDist[i - 1]) / (cumDist[i] - cumDist[i - 1]);
@@ -51,7 +46,16 @@ function sampleArrowPoints(coords: LatLng[], count: number): { point: LatLng; an
   return result;
 }
 
-export default function MapView({ route, start, end, hoverPoint, onMapClick }: Props) {
+function makeCircleIcon(L: typeof import("leaflet"), color: string) {
+  return L.divIcon({
+    className: "",
+    html: `<div style="background:${color};width:14px;height:14px;border-radius:50%;border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,.4)"></div>`,
+    iconSize: [14, 14],
+    iconAnchor: [7, 7],
+  });
+}
+
+export default function MapView({ route, start, end, hoverPoint, onMapClick, mapClickMode }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const mapRef = useRef<any>(null);
@@ -60,14 +64,19 @@ export default function MapView({ route, start, end, hoverPoint, onMapClick }: P
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const markersRef = useRef<any[]>([]);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const standaloneMarkersRef = useRef<any[]>([]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const hoverMarkerRef = useRef<any>(null);
 
+  // Always-fresh ref for the click callback so the Leaflet listener never goes stale
+  const onMapClickRef = useRef(onMapClick);
+  useEffect(() => { onMapClickRef.current = onMapClick; }, [onMapClick]);
+
+  // Map init — runs once
   useEffect(() => {
     if (typeof window === "undefined") return;
 
     import("leaflet").then((L) => {
-      // Guard contre le double-appel React StrictMode : l'import est async,
-      // donc le check doit être ici, après la résolution de la promesse.
       if (mapRef.current || !containerRef.current) return;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       if ((containerRef.current as any)._leaflet_id) return;
@@ -87,11 +96,9 @@ export default function MapView({ route, start, end, hoverPoint, onMapClick }: P
         maxZoom: 19,
       }).addTo(map);
 
-      if (onMapClick) {
-        map.on("click", (e: { latlng: { lat: number; lng: number } }) => {
-          onMapClick({ lat: e.latlng.lat, lng: e.latlng.lng });
-        });
-      }
+      map.on("click", (e: { latlng: { lat: number; lng: number } }) => {
+        onMapClickRef.current?.({ lat: e.latlng.lat, lng: e.latlng.lng });
+      });
 
       mapRef.current = map;
     });
@@ -102,6 +109,14 @@ export default function MapView({ route, start, end, hoverPoint, onMapClick }: P
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Cursor crosshair when in pin mode
+  useEffect(() => {
+    if (!mapRef.current) return;
+    const container = mapRef.current.getContainer?.();
+    if (container) container.style.cursor = mapClickMode ? "crosshair" : "";
+  }, [mapClickMode]);
+
+  // Route polyline + markers
   useEffect(() => {
     if (!mapRef.current) return;
     import("leaflet").then((L) => {
@@ -116,21 +131,12 @@ export default function MapView({ route, start, end, hoverPoint, onMapClick }: P
       polylineRef.current = poly;
       mapRef.current.fitBounds(poly.getBounds(), { padding: [40, 40] });
 
-      // Flèches directionnelles — ~1 toutes les 3 km environ
       const arrowCount = Math.max(3, Math.round(route.distanceKm / 3));
       const arrows = sampleArrowPoints(route.coordinates, arrowCount);
       for (const { point, angle } of arrows) {
         const icon = L.divIcon({
           className: "",
-          html: `<div style="
-            width:0;height:0;
-            border-left:6px solid transparent;
-            border-right:6px solid transparent;
-            border-bottom:12px solid #1D4ED8;
-            transform:rotate(${angle}deg);
-            transform-origin:center center;
-            filter:drop-shadow(0 1px 2px rgba(0,0,0,.35));
-          "></div>`,
+          html: `<div style="width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:12px solid #1D4ED8;transform:rotate(${angle}deg);transform-origin:center center;filter:drop-shadow(0 1px 2px rgba(0,0,0,.35))"></div>`,
           iconSize: [12, 12],
           iconAnchor: [6, 6],
         });
@@ -139,31 +145,43 @@ export default function MapView({ route, start, end, hoverPoint, onMapClick }: P
         );
       }
 
-      // Marqueur départ (vert)
-      if (start) {
-        const icon = L.divIcon({
-          className: "",
-          html: `<div style="background:#22c55e;width:14px;height:14px;border-radius:50%;border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,.4)"></div>`,
-          iconSize: [14, 14],
-          iconAnchor: [7, 7],
-        });
-        markersRef.current.push(L.marker([start.lat, start.lng], { icon }).addTo(mapRef.current));
-      }
-
-      // Marqueur arrivée (rouge) — seulement en mode A→B
+      if (start) markersRef.current.push(L.marker([start.lat, start.lng], { icon: makeCircleIcon(L, "#22c55e") }).addTo(mapRef.current));
       if (end && (end.lat !== start?.lat || end.lng !== start?.lng)) {
-        const icon = L.divIcon({
-          className: "",
-          html: `<div style="background:#ef4444;width:14px;height:14px;border-radius:50%;border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,.4)"></div>`,
-          iconSize: [14, 14],
-          iconAnchor: [7, 7],
-        });
-        markersRef.current.push(L.marker([end.lat, end.lng], { icon }).addTo(mapRef.current));
+        markersRef.current.push(L.marker([end.lat, end.lng], { icon: makeCircleIcon(L, "#ef4444") }).addTo(mapRef.current));
       }
     });
   }, [route, start, end]);
 
-  // Marqueur bleu qui suit le survol du profil altimétrique
+  // Standalone markers when no route yet
+  useEffect(() => {
+    if (!mapRef.current) return;
+    import("leaflet").then((L) => {
+      standaloneMarkersRef.current.forEach((m) => m.remove());
+      standaloneMarkersRef.current = [];
+
+      if (route) return; // route effect handles markers
+
+      if (start) {
+        standaloneMarkersRef.current.push(
+          L.marker([start.lat, start.lng], { icon: makeCircleIcon(L, "#22c55e") }).addTo(mapRef.current)
+        );
+      }
+      if (end && (end.lat !== start?.lat || end.lng !== start?.lng)) {
+        standaloneMarkersRef.current.push(
+          L.marker([end.lat, end.lng], { icon: makeCircleIcon(L, "#ef4444") }).addTo(mapRef.current)
+        );
+      }
+
+      if (start && end && (end.lat !== start.lat || end.lng !== start.lng)) {
+        const bounds = L.latLngBounds([[start.lat, start.lng], [end.lat, end.lng]]);
+        mapRef.current.fitBounds(bounds, { padding: [80, 80] });
+      } else if (start) {
+        mapRef.current.setView([start.lat, start.lng], Math.max(mapRef.current.getZoom(), 13));
+      }
+    });
+  }, [start, end, route]);
+
+  // Hover marker on elevation profile
   useEffect(() => {
     if (!mapRef.current) return;
     import("leaflet").then((L) => {
@@ -189,5 +207,14 @@ export default function MapView({ route, start, end, hoverPoint, onMapClick }: P
     });
   }, [hoverPoint]);
 
-  return <div ref={containerRef} className="w-full h-full" />;
+  return (
+    <div className="relative w-full h-full">
+      <div ref={containerRef} className="w-full h-full" />
+      {mapClickMode && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[1000] bg-blue-600 text-white text-sm font-semibold px-4 py-2 rounded-full shadow-lg pointer-events-none select-none">
+          Cliquez sur la carte pour placer le {mapClickMode === "start" ? "départ" : "l'arrivée"}
+        </div>
+      )}
+    </div>
+  );
 }
