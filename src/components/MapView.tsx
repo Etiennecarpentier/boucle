@@ -7,6 +7,7 @@ interface Props {
   route: RouteResult | null;
   start: LatLng | null;
   end: LatLng | null;
+  hoverPoint?: LatLng | null;
   onMapClick?: (latlng: LatLng) => void;
 }
 
@@ -50,7 +51,7 @@ function sampleArrowPoints(coords: LatLng[], count: number): { point: LatLng; an
   return result;
 }
 
-export default function MapView({ route, start, end, onMapClick }: Props) {
+export default function MapView({ route, start, end, hoverPoint, onMapClick }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const mapRef = useRef<any>(null);
@@ -58,6 +59,8 @@ export default function MapView({ route, start, end, onMapClick }: Props) {
   const polylineRef = useRef<any>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const markersRef = useRef<any[]>([]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const hoverMarkerRef = useRef<any>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -159,6 +162,32 @@ export default function MapView({ route, start, end, onMapClick }: Props) {
       }
     });
   }, [route, start, end]);
+
+  // Marqueur bleu qui suit le survol du profil altimétrique
+  useEffect(() => {
+    if (!mapRef.current) return;
+    import("leaflet").then((L) => {
+      if (hoverPoint) {
+        if (hoverMarkerRef.current) {
+          hoverMarkerRef.current.setLatLng([hoverPoint.lat, hoverPoint.lng]);
+        } else {
+          hoverMarkerRef.current = L.circleMarker([hoverPoint.lat, hoverPoint.lng], {
+            radius: 7,
+            color: "#fff",
+            weight: 2,
+            fillColor: "#3B82F6",
+            fillOpacity: 1,
+            interactive: false,
+          }).addTo(mapRef.current);
+        }
+      } else {
+        if (hoverMarkerRef.current) {
+          hoverMarkerRef.current.remove();
+          hoverMarkerRef.current = null;
+        }
+      }
+    });
+  }, [hoverPoint]);
 
   return <div ref={containerRef} className="w-full h-full" />;
 }

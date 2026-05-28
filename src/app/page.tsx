@@ -16,6 +16,7 @@ export default function HomePage() {
   const [route, setRoute] = useState<RouteResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hoverPoint, setHoverPoint] = useState<LatLng | null>(null);
   const lastParamsRef = useRef<RouteParams | null>(null);
   const regenerationCountRef = useRef(0);
 
@@ -59,7 +60,7 @@ export default function HomePage() {
 
   function handleExportGpx() {
     if (!route) return;
-    downloadGpx(route, "boucle");
+    downloadGpx(route);
   }
 
   const startCoords = lastParamsRef.current?.start ?? null;
@@ -80,14 +81,18 @@ export default function HomePage() {
       {/* Map area */}
       <main className="flex-1 flex flex-col min-h-0 relative">
         <div className="flex-1 min-h-0">
-          <MapView route={route} start={startCoords} end={endCoords} />
+          <MapView route={route} start={startCoords} end={endCoords} hoverPoint={hoverPoint} />
         </div>
 
         {/* Route metrics + elevation profile */}
         {route && (
           <div className="bg-white border-t border-gray-200 shadow-md z-10">
             <RouteMetrics route={route} />
-            <ElevationProfile data={route.elevationProfile} />
+            <ElevationProfile
+              data={route.elevationProfile}
+              coordinates={route.coordinates}
+              onHoverPoint={setHoverPoint}
+            />
           </div>
         )}
 
