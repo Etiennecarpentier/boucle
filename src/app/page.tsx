@@ -63,6 +63,8 @@ export default function HomePage() {
       const result = await fetchRoute(newParams);
       setRoute(result);
     } catch (e) {
+      // Rollback du compteur pour que le prochain essai reprenne au même seed
+      regenerationCountRef.current -= 1;
       setError(e instanceof Error ? e.message : "Erreur inconnue");
     } finally {
       setLoading(false);

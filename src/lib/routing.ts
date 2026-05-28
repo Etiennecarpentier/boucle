@@ -11,8 +11,8 @@ const STEEPNESS_TARGET_M_PER_KM: Record<0 | 1 | 2 | 3, number> = {
 };
 
 /** Nombre de candidats générés en parallèle */
-const N_CANDIDATES_CYCLING = 8;
-const N_CANDIDATES_RUNNING = 14;
+const N_CANDIDATES_CYCLING = 6;
+const N_CANDIDATES_RUNNING = 8;
 
 /** Tolérance de distance acceptable selon le sport (ratio) */
 const DIST_TOLERANCE_CYCLING = 0.25;
@@ -74,7 +74,9 @@ function parseRouteResult(data: unknown): RouteResult {
   };
 }
 
-/** Génère une boucle ORS round_trip pour un seed donné. Retourne null en cas d'erreur. */
+/** Génère une boucle ORS round_trip pour un seed donné.
+ *  Retourne null si ORS ne trouve pas de route.
+ *  Lance une erreur si le quota API est dépassé (429) ou erreur serveur (5xx). */
 async function fetchLoopCandidate(
   start: LatLng,
   targetDistanceKm: number,
@@ -100,6 +102,8 @@ async function fetchLoopCandidate(
         units: "km",
       }),
     });
+    if (res.status === 429) throw new Error("quota");
+    if (res.status >= 500) throw new Error("server");
     if (!res.ok) return null;
     return parseRouteResult(await res.json());
   } catch {
@@ -126,10 +130,18 @@ export async function fetchRoute(params: RouteParams): Promise<RouteResult> {
     const regenOffset = (params.seed ?? 0) * nCandidates;
 
     const seeds = Array.from({ length: nCandidates }, (_, i) => regenOffset + i);
-    const results = await Promise.all(
+    const settled = await Promise.allSettled(
       seeds.map(s => fetchLoopCandidate(params.start, params.targetDistanceKm, s, profile, apiKey))
     );
-    const valid = results.filter((r): r is RouteResult => r !== null);
+
+    const isQuotaError = settled.some(
+      r => r.status === "rejected" && (r.reason as Error)?.message === "quota"
+    );
+    if (isQuotaError) throw new Error("Limite de requêtes ORS atteinte. Attendez quelques secondes puis réessayez.");
+
+    const valid = settled
+      .filter((r): r is PromiseFulfilledResult<RouteResult> => r.status === "fulfilled" && r.value !== null)
+      .map(r => r.value);
     if (valid.length === 0) throw new Error("Aucun itinéraire trouvé. Vérifiez votre connexion ou changez le point de départ.");
 
     // Candidats dans la tolérance de distance — si aucun, on prend tout
