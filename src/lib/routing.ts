@@ -44,11 +44,19 @@ function parseRouteResult(data: unknown): RouteResult {
     elevationProfile.push({ distance: cumulDist, elevation: rawCoords[i][2] ?? 0 });
   }
 
+  // Calcul D+/D- avec seuil de 10m (méthode Garmin/Strava) :
+  // on ne comptabilise un gain/perte que si l'altitude a changé d'au moins
+  // 10m depuis le dernier point significatif, pour éliminer le bruit SRTM.
   let elevGain = 0, elevLoss = 0;
+  let lastSignificant = rawCoords[0]?.[2] ?? 0;
   for (let i = 1; i < rawCoords.length; i++) {
-    const diff = (rawCoords[i][2] ?? 0) - (rawCoords[i - 1][2] ?? 0);
-    if (diff > 0) elevGain += diff;
-    else elevLoss += Math.abs(diff);
+    const elev = rawCoords[i][2] ?? 0;
+    const diff = elev - lastSignificant;
+    if (Math.abs(diff) >= 10) {
+      if (diff > 0) elevGain += diff;
+      else elevLoss += Math.abs(diff);
+      lastSignificant = elev;
+    }
   }
 
   return {
