@@ -10,8 +10,13 @@ const STEEPNESS_TARGET_M_PER_KM: Record<0 | 1 | 2 | 3, number> = {
   3: 35,  // montagneux
 };
 
-/** Nombre de candidats générés en parallèle pour sélectionner le meilleur D+ */
-const N_CANDIDATES = 8;
+/** Nombre de candidats générés en parallèle */
+const N_CANDIDATES_CYCLING = 8;
+const N_CANDIDATES_RUNNING = 14;
+
+/** Tolérance de distance acceptable selon le sport (ratio) */
+const DIST_TOLERANCE_CYCLING = 0.25;
+const DIST_TOLERANCE_RUNNING = 0.12;
 
 export function randomWaypoint(center: LatLng, targetDistanceKm: number): LatLng {
   const radiusDeg = (targetDistanceKm / 4) / 111;
@@ -115,29 +120,35 @@ export async function fetchRoute(params: RouteParams): Promise<RouteResult> {
 
   // ── Mode boucle ──────────────────────────────────────────────────────────
   if (isLoop) {
-    const regenOffset = (params.seed ?? 0) * N_CANDIDATES;
+    const isRunning = profile === "foot-walking";
+    const nCandidates = isRunning ? N_CANDIDATES_RUNNING : N_CANDIDATES_CYCLING;
+    const distTolerance = isRunning ? DIST_TOLERANCE_RUNNING : DIST_TOLERANCE_CYCLING;
+    const regenOffset = (params.seed ?? 0) * nCandidates;
+
+    const seeds = Array.from({ length: nCandidates }, (_, i) => regenOffset + i);
+    const results = await Promise.all(
+      seeds.map(s => fetchLoopCandidate(params.start, params.targetDistanceKm, s, profile, apiKey))
+    );
+    const valid = results.filter((r): r is RouteResult => r !== null);
+    if (valid.length === 0) throw new Error("Aucun itinéraire trouvé. Vérifiez votre connexion ou changez le point de départ.");
+
+    // Candidats dans la tolérance de distance — si aucun, on prend tout
+    const withinDist = valid.filter(
+      r => Math.abs(r.distanceKm - params.targetDistanceKm) / params.targetDistanceKm <= distTolerance
+    );
+    const pool = withinDist.length > 0 ? withinDist : valid;
 
     if (params.steepnessLevel !== undefined) {
-      // Génère N candidats en parallèle, retourne le plus proche du D+ cible
-      const seeds = Array.from({ length: N_CANDIDATES }, (_, i) => regenOffset + i);
-      const results = await Promise.all(
-        seeds.map(s => fetchLoopCandidate(params.start, params.targetDistanceKm, s, profile, apiKey))
-      );
-      const valid = results.filter((r): r is RouteResult => r !== null);
-      if (valid.length === 0) throw new Error("Aucun itinéraire trouvé. Vérifiez votre connexion ou changez le point de départ.");
-
       const targetDPlus = STEEPNESS_TARGET_M_PER_KM[params.steepnessLevel] * params.targetDistanceKm;
-      return valid.reduce((best, c) =>
+      return pool.reduce((best, c) =>
         Math.abs(c.elevationGainM - targetDPlus) < Math.abs(best.elevationGainM - targetDPlus) ? c : best
       );
     }
 
-    // Pas de préférence de dénivelé : un seul appel
-    const result = await fetchLoopCandidate(
-      params.start, params.targetDistanceKm, regenOffset, profile, apiKey
+    // Pas de préférence de dénivelé : retourne le plus proche de la distance cible
+    return pool.reduce((best, c) =>
+      Math.abs(c.distanceKm - params.targetDistanceKm) < Math.abs(best.distanceKm - params.targetDistanceKm) ? c : best
     );
-    if (!result) throw new Error("Impossible de générer l'itinéraire.");
-    return result;
   }
 
   // ── Mode A→B ─────────────────────────────────────────────────────────────
