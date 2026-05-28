@@ -31,7 +31,9 @@ export default function ControlPanel({
   const [distanceKm, setDistanceKm] = useState<number>(50);
   const [useTime, setUseTime] = useState(false);
   const [timeHours, setTimeHours] = useState<number>(2);
-  const [speedKmh, setSpeedKmh] = useState<number>(sport === "cycling-road" ? 25 : 10);
+  const [speedKmh, setSpeedKmh] = useState<number>(25);   // vélo
+  const [paceMin, setPaceMin] = useState<number>(5);       // course : minutes/km
+  const [paceSec, setPaceSec] = useState<number>(30);      // course : secondes/km
   const [steepnessLevel, setSteepnessLevel] = useState<0 | 1 | 2 | 3 | null>(null);
   const [isOpen, setIsOpen] = useState(true);
 
@@ -57,7 +59,11 @@ export default function ControlPanel({
     e.preventDefault();
     if (!startCoords) return;
 
-    const effectiveDistanceKm = useTime ? timeHours * speedKmh : distanceKm;
+    const effectiveDistanceKm = useTime
+      ? sport === "foot-walking"
+        ? timeHours * 60 / (paceMin + paceSec / 60)   // durée × vitesse convertie depuis l'allure
+        : timeHours * speedKmh
+      : distanceKm;
 
     onGenerate({
       start: startCoords,
@@ -70,7 +76,7 @@ export default function ControlPanel({
 
   function handleSportChange(s: Sport) {
     setSport(s);
-    setSpeedKmh(s === "cycling-road" ? 25 : 10);
+    if (s === "cycling-road") setSpeedKmh(25);
   }
 
   const isLoop = !endCoords || (endCoords.lat === startCoords?.lat && endCoords.lng === startCoords?.lng);
@@ -98,6 +104,10 @@ export default function ControlPanel({
           setTimeHours={setTimeHours}
           speedKmh={speedKmh}
           setSpeedKmh={setSpeedKmh}
+          paceMin={paceMin}
+          setPaceMin={setPaceMin}
+          paceSec={paceSec}
+          setPaceSec={setPaceSec}
           steepnessLevel={steepnessLevel}
           setSteepnessLevel={setSteepnessLevel}
           isLoop={isLoop}
@@ -149,6 +159,10 @@ export default function ControlPanel({
               setTimeHours={setTimeHours}
               speedKmh={speedKmh}
               setSpeedKmh={setSpeedKmh}
+              paceMin={paceMin}
+              setPaceMin={setPaceMin}
+              paceSec={paceSec}
+              setPaceSec={setPaceSec}
               steepnessLevel={steepnessLevel}
               setSteepnessLevel={setSteepnessLevel}
               isLoop={isLoop}
@@ -188,6 +202,10 @@ interface PanelContentProps {
   setTimeHours: (v: number) => void;
   speedKmh: number;
   setSpeedKmh: (v: number) => void;
+  paceMin: number;
+  setPaceMin: (v: number) => void;
+  paceSec: number;
+  setPaceSec: (v: number) => void;
   steepnessLevel: 0 | 1 | 2 | 3 | null;
   setSteepnessLevel: (v: 0 | 1 | 2 | 3 | null) => void;
   isLoop: boolean;
@@ -210,12 +228,18 @@ function PanelContent({
   useTime, setUseTime,
   timeHours, setTimeHours,
   speedKmh, setSpeedKmh,
+  paceMin, setPaceMin,
+  paceSec, setPaceSec,
   steepnessLevel, setSteepnessLevel,
   isLoop,
   onSubmit, onRegenerate, onExportGpx,
   hasRoute, loading, error, canRegenerate, startCoords,
 }: PanelContentProps) {
-  const effectiveDistance = useTime ? timeHours * speedKmh : distanceKm;
+  const effectiveDistance = useTime
+    ? sport === "foot-walking"
+      ? timeHours * 60 / (paceMin + paceSec / 60)
+      : timeHours * speedKmh
+    : distanceKm;
 
   return (
     <form onSubmit={onSubmit} className="flex flex-col gap-4 p-4">
@@ -325,17 +349,43 @@ function PanelContent({
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
-            <div className="flex-1">
-              <label className="text-xs text-gray-500">Vitesse (km/h)</label>
-              <input
-                type="number"
-                min={5}
-                max={50}
-                value={speedKmh}
-                onChange={(e) => setSpeedKmh(+e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
+            {sport === "foot-walking" ? (
+              <div className="flex-1">
+                <label className="text-xs text-gray-500">Allure (min/km)</label>
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    min={2}
+                    max={20}
+                    value={paceMin}
+                    onChange={(e) => setPaceMin(Math.max(2, Math.min(20, +e.target.value)))}
+                    className="w-12 border border-gray-300 rounded-lg px-2 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <span className="text-gray-500 text-sm">:</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={59}
+                    value={String(paceSec).padStart(2, "0")}
+                    onChange={(e) => setPaceSec(Math.max(0, Math.min(59, +e.target.value)))}
+                    className="w-12 border border-gray-300 rounded-lg px-2 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <span className="text-gray-400 text-xs">/km</span>
+                </div>
+              </div>
+            ) : (
+              <div className="flex-1">
+                <label className="text-xs text-gray-500">Vitesse (km/h)</label>
+                <input
+                  type="number"
+                  min={5}
+                  max={50}
+                  value={speedKmh}
+                  onChange={(e) => setSpeedKmh(+e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            )}
           </div>
         )}
 
