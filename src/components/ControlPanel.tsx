@@ -16,18 +16,20 @@ interface Props {
   onGenerate: (params: RouteParams) => void;
   onRegenerate: () => void;
   onExportGpx: () => void;
+  onReverseRoute: () => void;
   hasRoute: boolean;
   loading: boolean;
   error: string | null;
   canRegenerate: boolean;
+  canReverse: boolean;
 }
 
 export default function ControlPanel({
   startText, startCoords, onStartChange,
   endText, endCoords, onEndChange,
   mapClickMode, onSetMapClickMode,
-  onGenerate, onRegenerate, onExportGpx,
-  hasRoute, loading, error, canRegenerate,
+  onGenerate, onRegenerate, onExportGpx, onReverseRoute,
+  hasRoute, loading, error, canRegenerate, canReverse,
 }: Props) {
   const [sport, setSport] = useState<Sport>("cycling-road");
   const [distanceKm, setDistanceKm] = useState<number>(50);
@@ -93,8 +95,8 @@ export default function ControlPanel({
     paceSec, setPaceSec,
     steepnessLevel, setSteepnessLevel,
     isLoop,
-    onSubmit: handleSubmit, onRegenerate, onExportGpx,
-    hasRoute, loading, error, canRegenerate,
+    onSubmit: handleSubmit, onRegenerate, onExportGpx, onReverseRoute,
+    hasRoute, loading, error, canRegenerate, canReverse,
   };
 
   return (
@@ -159,10 +161,12 @@ interface PanelContentProps {
   onSubmit: (e: React.FormEvent) => void;
   onRegenerate: () => void;
   onExportGpx: () => void;
+  onReverseRoute: () => void;
   hasRoute: boolean;
   loading: boolean;
   error: string | null;
   canRegenerate: boolean;
+  canReverse: boolean;
 }
 
 function PanelContent({
@@ -179,8 +183,8 @@ function PanelContent({
   paceSec, setPaceSec,
   steepnessLevel, setSteepnessLevel,
   isLoop,
-  onSubmit, onRegenerate, onExportGpx,
-  hasRoute, loading, error, canRegenerate,
+  onSubmit, onRegenerate, onExportGpx, onReverseRoute,
+  hasRoute, loading, error, canRegenerate, canReverse,
 }: PanelContentProps) {
   const effectiveDistance = useTime
     ? sport === "foot-walking"
@@ -412,6 +416,19 @@ function PanelContent({
             <path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z" />
           </svg>
           Proposer un autre tracé
+        </button>
+      )}
+
+      {canReverse && (
+        <button
+          type="button"
+          onClick={onReverseRoute}
+          className="w-full py-2.5 rounded-xl border-2 border-gray-400 text-gray-600 hover:bg-gray-50 font-semibold transition-colors flex items-center justify-center gap-2"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M6.99 11L3 15l3.99 4v-3H14v-2H6.99v-3zM21 9l-3.99-4v3H10v2h7.01v3L21 9z"/>
+          </svg>
+          Inverser le sens
         </button>
       )}
 

@@ -5,7 +5,7 @@ import { useState, useCallback, useRef } from "react";
 import ControlPanel from "@/components/ControlPanel";
 import RouteMetrics from "@/components/RouteMetrics";
 import type { LatLng, RouteParams, RouteResult } from "@/lib/types";
-import { fetchRoute, randomWaypoint } from "@/lib/routing";
+import { fetchRoute, randomWaypoint, reverseRoute } from "@/lib/routing";
 import { downloadGpx } from "@/lib/gpx";
 import { reverseGeocode } from "@/lib/geocoding";
 
@@ -74,6 +74,16 @@ export default function HomePage() {
     downloadGpx(route);
   }
 
+  function handleReverseRoute() {
+    if (!route) return;
+    setRoute(reverseRoute(route));
+  }
+
+  const isRouteLoop = route
+    ? Math.abs(route.coordinates[0].lat - route.coordinates[route.coordinates.length - 1].lat) < 0.001 &&
+      Math.abs(route.coordinates[0].lng - route.coordinates[route.coordinates.length - 1].lng) < 0.001
+    : false;
+
   const handleMapClick = useCallback(async (latlng: LatLng) => {
     const mode = mapClickModeRef.current;
     if (!mode) return;
@@ -107,10 +117,12 @@ export default function HomePage() {
         onGenerate={generate}
         onRegenerate={regenerate}
         onExportGpx={handleExportGpx}
+        onReverseRoute={handleReverseRoute}
         hasRoute={!!route}
         loading={loading}
         error={error}
         canRegenerate={!!route && !loading}
+        canReverse={isRouteLoop && !!route && !loading}
       />
 
       {/* Map area */}

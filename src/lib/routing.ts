@@ -161,6 +161,25 @@ export async function fetchRoute(params: RouteParams): Promise<RouteResult> {
   return parseRouteResult(await res.json());
 }
 
+export function reverseRoute(route: RouteResult): RouteResult {
+  const reversedCoords = [...route.coordinates].reverse();
+
+  const n = route.elevationProfile.length;
+  const totalDist = route.elevationProfile[n - 1]?.distance ?? 0;
+  const reversedProfile = route.elevationProfile.map((_, i) => ({
+    distance: totalDist - route.elevationProfile[n - 1 - i].distance,
+    elevation: route.elevationProfile[n - 1 - i].elevation,
+  }));
+
+  return {
+    ...route,
+    coordinates: reversedCoords,
+    elevationGainM: route.elevationLossM,
+    elevationLossM: route.elevationGainM,
+    elevationProfile: reversedProfile,
+  };
+}
+
 function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6371;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
