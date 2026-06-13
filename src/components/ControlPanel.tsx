@@ -44,6 +44,7 @@ export default function ControlPanel({
   const [paceMin, setPaceMin] = useState<number>(5);
   const [paceSec, setPaceSec] = useState<number>(30);
   const [steepnessLevel, setSteepnessLevel] = useState<0 | 1 | 2 | 3 | null>(null);
+  const [avoidBadSurfaces, setAvoidBadSurfaces] = useState(false);
   const [isOpen, setIsOpen] = useState(true);
 
   function handleLocate() {
@@ -81,6 +82,7 @@ export default function ControlPanel({
       targetDistanceKm: effectiveDistanceKm,
       steepnessLevel: steepnessLevel ?? undefined,
       waypoints: validWaypoints.length > 0 ? validWaypoints : undefined,
+      avoidBadSurfaces: sport === "cycling-road" ? avoidBadSurfaces : undefined,
     });
   }
 
@@ -105,6 +107,7 @@ export default function ControlPanel({
     paceMin, setPaceMin,
     paceSec, setPaceSec,
     steepnessLevel, setSteepnessLevel,
+    avoidBadSurfaces, setAvoidBadSurfaces,
     isLoop,
     onSubmit: handleSubmit, onRegenerate, onExportGpx, onReverseRoute,
     hasRoute, loading, error, canRegenerate, canReverse,
@@ -172,6 +175,8 @@ interface PanelContentProps {
   setPaceSec: (v: number) => void;
   steepnessLevel: 0 | 1 | 2 | 3 | null;
   setSteepnessLevel: (v: 0 | 1 | 2 | 3 | null) => void;
+  avoidBadSurfaces: boolean;
+  setAvoidBadSurfaces: (v: boolean) => void;
   isLoop: boolean;
   onSubmit: (e: React.FormEvent) => void;
   onRegenerate: () => void;
@@ -198,6 +203,7 @@ function PanelContent({
   paceMin, setPaceMin,
   paceSec, setPaceSec,
   steepnessLevel, setSteepnessLevel,
+  avoidBadSurfaces, setAvoidBadSurfaces,
   isLoop,
   onSubmit, onRegenerate, onExportGpx, onReverseRoute,
   hasRoute, loading, error, canRegenerate, canReverse,
@@ -439,6 +445,16 @@ function PanelContent({
             <option value={2}>Vallonné (15–25 m/km)</option>
             <option value={3}>Montagneux (&gt; 25 m/km)</option>
           </select>
+
+          <label className="flex items-center gap-2 mt-3 text-sm text-gray-700 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={avoidBadSurfaces}
+              onChange={(e) => setAvoidBadSurfaces(e.target.checked)}
+              className="w-4 h-4 accent-blue-600"
+            />
+            Privilégier les routes bien revêtues
+          </label>
         </div>
       )}
 

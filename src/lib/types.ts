@@ -18,6 +18,8 @@ export interface RouteParams {
   randomWaypoints?: LatLng[];
   /** Seed ORS round_trip pour varier les boucles */
   seed?: number;
+  /** Privilégier les routes bien revêtues (éviter pistes/chemins en mauvais état) */
+  avoidBadSurfaces?: boolean;
 }
 
 export interface ElevationPoint {

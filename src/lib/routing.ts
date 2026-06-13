@@ -70,15 +70,6 @@ function buildRouteResult(rawCoords: [number, number, number][], distanceKm: num
   };
 }
 
-/** Extrait un RouteResult depuis la réponse GeoJSON ORS (une seule feature) */
-function parseRouteResult(data: unknown): RouteResult {
-  const feature = (data as { features: unknown[] }).features[0] as {
-    properties: { summary: { distance: number; duration: number } };
-    geometry: { coordinates: [number, number, number][] };
-  };
-  return buildRouteResult(feature.geometry.coordinates, feature.properties.summary.distance, feature.properties.summary.duration);
-}
-
 /** Largeur (en mètres) du couloir interdit construit autour d'un tronçon déjà parcouru */
 const CORRIDOR_WIDTH_M = 25;
 
@@ -128,42 +119,96 @@ function buildAvoidCorridor(coords: [number, number][], widthM: number): [number
   return polygons;
 }
 
-/** Calcule un trajet entre deux points en évitant les couloirs `avoidPolygons`
- *  (tronçons déjà parcourus), pour empêcher les allers-retours dans une boucle.
- *  Si l'évitement échoue (zone trop grande, aucun trajet possible…), retente sans contrainte. */
-async function fetchLeg(
-  from: LatLng,
-  to: LatLng,
+/** Codes de surface ORS (extra_info "surface") considérés comme "mauvais" pour le
+ *  vélo de route : non revêtus (terre, herbe, gravier, sable…) ou inconnus. */
+const BAD_SURFACE_CODES = new Set([0, 2, 8, 9, 10, 11, 12, 13, 15, 16, 17, 18]);
+
+/** Proportion de mauvaise surface au-delà de laquelle on tente un détour */
+const BAD_SURFACE_THRESHOLD = 0.15;
+
+type SurfaceExtra = {
+  values: [number, number, number][];
+  summary: { value: number; distance: number; amount: number }[];
+};
+
+type ORSFeature = {
+  properties: {
+    summary: { distance: number; duration: number };
+    extras?: { surface?: SurfaceExtra };
+  };
+  geometry: { coordinates: [number, number, number][] };
+};
+
+type ORSResponse = { features: ORSFeature[] };
+
+/** Proportion (0–1) de la distance d'un trajet roulant sur une "mauvaise" surface */
+function badSurfaceRatio(extras?: { surface?: SurfaceExtra }): number {
+  const summary = extras?.surface?.summary;
+  if (!summary) return 0;
+  let bad = 0;
+  for (const s of summary) {
+    if (BAD_SURFACE_CODES.has(s.value)) bad += s.amount;
+  }
+  return bad / 100;
+}
+
+/** Construit des couloirs d'évitement autour des portions de mauvaise surface du trajet */
+function buildBadSurfaceCorridors(
+  coords: [number, number, number][],
+  extras?: { surface?: SurfaceExtra },
+): [number, number][][][] {
+  const values = extras?.surface?.values;
+  if (!values) return [];
+  const polygons: [number, number][][][] = [];
+  for (const [from, to, code] of values) {
+    if (!BAD_SURFACE_CODES.has(code)) continue;
+    const segment = coords.slice(from, to + 1);
+    if (segment.length < 2) continue;
+    const simplified = simplifyCoords(segment, CORRIDOR_MAX_POINTS);
+    polygons.push(...buildAvoidCorridor(simplified, CORRIDOR_WIDTH_M));
+  }
+  return polygons;
+}
+
+/** Calcule un itinéraire ORS pour une liste de coordonnées (lng, lat), en évitant les
+ *  couloirs `avoidPolygons` (tronçons déjà parcourus, pour empêcher les allers-retours
+ *  dans une boucle). Si `avoidBadSurfaces` est activé et que le trajet obtenu roule trop
+ *  sur de mauvaises surfaces, retente en les évitant également. Si l'évitement échoue
+ *  (zone trop grande, aucun trajet possible…), retombe sur le trajet sans contrainte. */
+async function fetchDirections(
+  coordinates: [number, number][],
   profile: string,
   apiKey: string,
   avoidPolygons: [number, number][][][],
-): Promise<{ coords: [number, number, number][]; distanceKm: number; durationSec: number }> {
-  const body: Record<string, unknown> = {
-    coordinates: [[from.lng, from.lat], [to.lng, to.lat]],
-    elevation: true,
-    instructions: false,
-    units: "km",
+  avoidBadSurfaces: boolean,
+): Promise<{ coords: [number, number, number][]; distanceKm: number; durationSec: number; extras?: { surface?: SurfaceExtra } }> {
+  const buildBody = (polys: [number, number][][][]): Record<string, unknown> => {
+    const body: Record<string, unknown> = {
+      coordinates,
+      elevation: true,
+      instructions: false,
+      units: "km",
+    };
+    if (polys.length > 0) {
+      body.options = { avoid_polygons: { type: "MultiPolygon", coordinates: polys } };
+    }
+    if (avoidBadSurfaces) body.extra_info = ["surface"];
+    return body;
   };
-  if (avoidPolygons.length > 0) {
-    body.options = { avoid_polygons: { type: "MultiPolygon", coordinates: avoidPolygons } };
-  }
 
-  let res = await fetch(`${ORS_BASE}/v2/directions/${profile}/geojson`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: apiKey },
-    body: JSON.stringify(body),
-  });
+  const send = (body: Record<string, unknown>) =>
+    fetch(`${ORS_BASE}/v2/directions/${profile}/geojson`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: apiKey },
+      body: JSON.stringify(body),
+    });
+
+  let res = await send(buildBody(avoidPolygons));
 
   if (res.status === 429) throw new Error("Limite de requêtes ORS atteinte. Attendez quelques secondes puis réessayez.");
 
   if (!res.ok && avoidPolygons.length > 0) {
-    const retryBody: Record<string, unknown> = { ...body };
-    delete retryBody.options;
-    res = await fetch(`${ORS_BASE}/v2/directions/${profile}/geojson`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: apiKey },
-      body: JSON.stringify(retryBody),
-    });
+    res = await send(buildBody([]));
   }
 
   if (!res.ok) {
@@ -171,19 +216,42 @@ async function fetchLeg(
     throw new Error(`ORS error ${res.status}: ${err}`);
   }
 
-  const data = await res.json() as {
-    features: Array<{
-      properties: { summary: { distance: number; duration: number } };
-      geometry: { coordinates: [number, number, number][] };
-    }>;
-  };
+  let feature = ((await res.json()) as ORSResponse).features[0];
 
-  const feature = data.features[0];
+  if (avoidBadSurfaces) {
+    const ratio = badSurfaceRatio(feature.properties.extras);
+    if (ratio > BAD_SURFACE_THRESHOLD) {
+      const corridors = buildBadSurfaceCorridors(feature.geometry.coordinates, feature.properties.extras);
+      if (corridors.length > 0) {
+        const retryRes = await send(buildBody([...avoidPolygons, ...corridors]));
+        if (retryRes.ok) {
+          const retryFeature = ((await retryRes.json()) as ORSResponse).features[0];
+          if (badSurfaceRatio(retryFeature.properties.extras) < ratio) {
+            feature = retryFeature;
+          }
+        }
+      }
+    }
+  }
+
   return {
     coords: feature.geometry.coordinates,
     distanceKm: feature.properties.summary.distance,
     durationSec: feature.properties.summary.duration,
+    extras: feature.properties.extras,
   };
+}
+
+/** Calcule un trajet entre deux points (cf. `fetchDirections`) */
+function fetchLeg(
+  from: LatLng,
+  to: LatLng,
+  profile: string,
+  apiKey: string,
+  avoidPolygons: [number, number][][][],
+  avoidBadSurfaces: boolean,
+): Promise<{ coords: [number, number, number][]; distanceKm: number; durationSec: number; extras?: { surface?: SurfaceExtra } }> {
+  return fetchDirections([[from.lng, from.lat], [to.lng, to.lat]], profile, apiKey, avoidPolygons, avoidBadSurfaces);
 }
 
 /** Génère une boucle ORS round_trip pour un seed donné.
@@ -195,29 +263,37 @@ async function fetchLoopCandidate(
   seed: number,
   profile: string,
   apiKey: string,
-): Promise<RouteResult | null> {
+  avoidBadSurfaces: boolean,
+): Promise<{ result: RouteResult; badRatio: number } | null> {
   try {
+    const body: Record<string, unknown> = {
+      coordinates: [[start.lng, start.lat]],
+      options: {
+        round_trip: {
+          length: Math.round(targetDistanceKm * 1000),
+          points: 3,
+          seed,
+        },
+      },
+      elevation: true,
+      instructions: false,
+      units: "km",
+    };
+    if (avoidBadSurfaces) body.extra_info = ["surface"];
+
     const res = await fetch(`${ORS_BASE}/v2/directions/${profile}/geojson`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: apiKey },
-      body: JSON.stringify({
-        coordinates: [[start.lng, start.lat]],
-        options: {
-          round_trip: {
-            length: Math.round(targetDistanceKm * 1000),
-            points: 3,
-            seed,
-          },
-        },
-        elevation: true,
-        instructions: false,
-        units: "km",
-      }),
+      body: JSON.stringify(body),
     });
     if (res.status === 429) throw new Error("quota");
     if (res.status >= 500) throw new Error("server");
     if (!res.ok) return null;
-    return parseRouteResult(await res.json());
+    const feature = ((await res.json()) as ORSResponse).features[0];
+    return {
+      result: buildRouteResult(feature.geometry.coordinates, feature.properties.summary.distance, feature.properties.summary.duration),
+      badRatio: badSurfaceRatio(feature.properties.extras),
+    };
   } catch {
     return null;
   }
@@ -265,7 +341,7 @@ export async function fetchRoute(params: RouteParams): Promise<RouteResult> {
       let totalDurationSec = 0;
 
       for (let i = 0; i < points.length - 1; i++) {
-        const leg = await fetchLeg(points[i], points[i + 1], profile, apiKey, avoidPolygons);
+        const leg = await fetchLeg(points[i], points[i + 1], profile, apiKey, avoidPolygons, params.avoidBadSurfaces ?? false);
         const legCoords = allCoords.length > 0 ? leg.coords.slice(1) : leg.coords;
         allCoords.push(...legCoords);
         totalDistanceKm += leg.distanceKm;
@@ -283,7 +359,7 @@ export async function fetchRoute(params: RouteParams): Promise<RouteResult> {
 
     const seeds = Array.from({ length: nCandidates }, (_, i) => regenOffset + i);
     const settled = await Promise.allSettled(
-      seeds.map(s => fetchLoopCandidate(params.start, params.targetDistanceKm, s, profile, apiKey))
+      seeds.map(s => fetchLoopCandidate(params.start, params.targetDistanceKm, s, profile, apiKey, params.avoidBadSurfaces ?? false))
     );
 
     const isQuotaError = settled.some(
@@ -292,27 +368,34 @@ export async function fetchRoute(params: RouteParams): Promise<RouteResult> {
     if (isQuotaError) throw new Error("Limite de requêtes ORS atteinte. Attendez quelques secondes puis réessayez.");
 
     const valid = settled
-      .filter((r): r is PromiseFulfilledResult<RouteResult> => r.status === "fulfilled" && r.value !== null)
+      .filter((r): r is PromiseFulfilledResult<{ result: RouteResult; badRatio: number }> => r.status === "fulfilled" && r.value !== null)
       .map(r => r.value);
     if (valid.length === 0) throw new Error("Aucun itinéraire trouvé. Vérifiez votre connexion ou changez le point de départ.");
 
     // Candidats dans la tolérance de distance — si aucun, on prend tout
     const withinDist = valid.filter(
-      r => Math.abs(r.distanceKm - params.targetDistanceKm) / params.targetDistanceKm <= distTolerance
+      v => Math.abs(v.result.distanceKm - params.targetDistanceKm) / params.targetDistanceKm <= distTolerance
     );
-    const pool = withinDist.length > 0 ? withinDist : valid;
+    let pool = withinDist.length > 0 ? withinDist : valid;
+
+    // Si on privilégie les bonnes surfaces, on écarte les candidats trop "mauvais"
+    // quand il en reste au moins un acceptable
+    if (params.avoidBadSurfaces) {
+      const goodPool = pool.filter(v => v.badRatio <= BAD_SURFACE_THRESHOLD);
+      if (goodPool.length > 0) pool = goodPool;
+    }
 
     if (params.steepnessLevel !== undefined) {
       const targetDPlus = STEEPNESS_TARGET_M_PER_KM[params.steepnessLevel] * params.targetDistanceKm;
       return pool.reduce((best, c) =>
-        Math.abs(c.elevationGainM - targetDPlus) < Math.abs(best.elevationGainM - targetDPlus) ? c : best
-      );
+        Math.abs(c.result.elevationGainM - targetDPlus) < Math.abs(best.result.elevationGainM - targetDPlus) ? c : best
+      ).result;
     }
 
     // Pas de préférence de dénivelé : retourne le plus proche de la distance cible
     return pool.reduce((best, c) =>
-      Math.abs(c.distanceKm - params.targetDistanceKm) < Math.abs(best.distanceKm - params.targetDistanceKm) ? c : best
-    );
+      Math.abs(c.result.distanceKm - params.targetDistanceKm) < Math.abs(best.result.distanceKm - params.targetDistanceKm) ? c : best
+    ).result;
   }
 
   // ── Mode A→B ─────────────────────────────────────────────────────────────
@@ -325,18 +408,8 @@ export async function fetchRoute(params: RouteParams): Promise<RouteResult> {
   }
   coords.push([params.end!.lng, params.end!.lat]);
 
-  const res = await fetch(`${ORS_BASE}/v2/directions/${profile}/geojson`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: apiKey },
-    body: JSON.stringify({ coordinates: coords, elevation: true, instructions: false, units: "km" }),
-  });
-
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`ORS error ${res.status}: ${err}`);
-  }
-
-  return parseRouteResult(await res.json());
+  const leg = await fetchDirections(coords, profile, apiKey, [], params.avoidBadSurfaces ?? false);
+  return buildRouteResult(leg.coords, leg.distanceKm, leg.durationSec);
 }
 
 export function reverseRoute(route: RouteResult): RouteResult {
