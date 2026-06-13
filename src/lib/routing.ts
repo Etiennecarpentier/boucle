@@ -18,6 +18,9 @@ const N_CANDIDATES_RUNNING = 8;
 const DIST_TOLERANCE_CYCLING = 0.25;
 const DIST_TOLERANCE_RUNNING = 0.12;
 
+/** Facteur approximatif route/vol d'oiseau, pour estimer la distance d'un trajet avant requête ORS */
+const ROAD_DETOUR_FACTOR = 1.3;
+
 export function randomWaypoint(center: LatLng, targetDistanceKm: number): LatLng {
   const radiusDeg = (targetDistanceKm / 4) / 111;
   const angle = Math.random() * 2 * Math.PI;
@@ -27,15 +30,8 @@ export function randomWaypoint(center: LatLng, targetDistanceKm: number): LatLng
   };
 }
 
-/** Extrait un RouteResult depuis la réponse GeoJSON ORS */
-function parseRouteResult(data: unknown): RouteResult {
-  const feature = (data as { features: unknown[] }).features[0] as {
-    properties: { summary: { distance: number; duration: number } };
-    geometry: { coordinates: [number, number, number][] };
-  };
-  const summary = feature.properties.summary;
-  const rawCoords = feature.geometry.coordinates;
-
+/** Construit un RouteResult à partir d'une polyligne brute (lng, lat, ele) et de ses totaux */
+function buildRouteResult(rawCoords: [number, number, number][], distanceKm: number, durationSec: number): RouteResult {
   const coordinates: LatLng[] = rawCoords.map(([lng, lat]) => ({ lat, lng }));
 
   let cumulDist = 0;
@@ -66,11 +62,127 @@ function parseRouteResult(data: unknown): RouteResult {
 
   return {
     coordinates,
-    distanceKm: summary.distance,
+    distanceKm,
     elevationGainM: Math.round(elevGain),
     elevationLossM: Math.round(elevLoss),
-    durationMin: Math.round(summary.duration / 60),
+    durationMin: Math.round(durationSec / 60),
     elevationProfile,
+  };
+}
+
+/** Extrait un RouteResult depuis la réponse GeoJSON ORS (une seule feature) */
+function parseRouteResult(data: unknown): RouteResult {
+  const feature = (data as { features: unknown[] }).features[0] as {
+    properties: { summary: { distance: number; duration: number } };
+    geometry: { coordinates: [number, number, number][] };
+  };
+  return buildRouteResult(feature.geometry.coordinates, feature.properties.summary.distance, feature.properties.summary.duration);
+}
+
+/** Largeur (en mètres) du couloir interdit construit autour d'un tronçon déjà parcouru */
+const CORRIDOR_WIDTH_M = 25;
+
+/** Nombre maximal de points conservés par tronçon pour borner la taille des polygones d'évitement */
+const CORRIDOR_MAX_POINTS = 15;
+
+/** Réduit une polyligne à au plus `maxPoints` points par échantillonnage uniforme */
+function simplifyCoords(coords: [number, number, number][], maxPoints: number): [number, number][] {
+  if (coords.length <= maxPoints) return coords.map(([lng, lat]) => [lng, lat]);
+  const step = (coords.length - 1) / (maxPoints - 1);
+  const result: [number, number][] = [];
+  for (let i = 0; i < maxPoints; i++) {
+    const idx = Math.round(i * step);
+    const [lng, lat] = coords[idx];
+    result.push([lng, lat]);
+  }
+  return result;
+}
+
+/** Construit, pour chaque segment d'une polyligne, un rectangle de `widthM` mètres de large
+ *  centré sur ce segment, à fournir à ORS comme zones à éviter (avoid_polygons). */
+function buildAvoidCorridor(coords: [number, number][], widthM: number): [number, number][][][] {
+  const polygons: [number, number][][][] = [];
+  for (let i = 0; i < coords.length - 1; i++) {
+    const [lng1, lat1] = coords[i];
+    const [lng2, lat2] = coords[i + 1];
+    const latRad = (lat1 * Math.PI) / 180;
+    const dLat = lat2 - lat1;
+    const dLng = (lng2 - lng1) * Math.cos(latRad);
+    const len = Math.sqrt(dLat * dLat + dLng * dLng);
+    if (len === 0) continue;
+    const perpLat = -dLng / len;
+    const perpLng = dLat / len;
+    const widthLat = widthM / 111320;
+    const widthLng = widthM / (111320 * Math.cos(latRad));
+    const offLat = perpLat * widthLat;
+    const offLng = perpLng * widthLng;
+    const ring: [number, number][] = [
+      [lng1 + offLng, lat1 + offLat],
+      [lng2 + offLng, lat2 + offLat],
+      [lng2 - offLng, lat2 - offLat],
+      [lng1 - offLng, lat1 - offLat],
+      [lng1 + offLng, lat1 + offLat],
+    ];
+    polygons.push([ring]);
+  }
+  return polygons;
+}
+
+/** Calcule un trajet entre deux points en évitant les couloirs `avoidPolygons`
+ *  (tronçons déjà parcourus), pour empêcher les allers-retours dans une boucle.
+ *  Si l'évitement échoue (zone trop grande, aucun trajet possible…), retente sans contrainte. */
+async function fetchLeg(
+  from: LatLng,
+  to: LatLng,
+  profile: string,
+  apiKey: string,
+  avoidPolygons: [number, number][][][],
+): Promise<{ coords: [number, number, number][]; distanceKm: number; durationSec: number }> {
+  const body: Record<string, unknown> = {
+    coordinates: [[from.lng, from.lat], [to.lng, to.lat]],
+    elevation: true,
+    instructions: false,
+    units: "km",
+  };
+  if (avoidPolygons.length > 0) {
+    body.options = { avoid_polygons: { type: "MultiPolygon", coordinates: avoidPolygons } };
+  }
+
+  let res = await fetch(`${ORS_BASE}/v2/directions/${profile}/geojson`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: apiKey },
+    body: JSON.stringify(body),
+  });
+
+  if (res.status === 429) throw new Error("Limite de requêtes ORS atteinte. Attendez quelques secondes puis réessayez.");
+
+  if (!res.ok && avoidPolygons.length > 0) {
+    const retryBody: Record<string, unknown> = { ...body };
+    delete retryBody.options;
+    res = await fetch(`${ORS_BASE}/v2/directions/${profile}/geojson`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: apiKey },
+      body: JSON.stringify(retryBody),
+    });
+  }
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`ORS error ${res.status}: ${err}`);
+  }
+
+  const data = await res.json() as {
+    features: Array<{
+      properties: { summary: { distance: number; duration: number } };
+      geometry: { coordinates: [number, number, number][] };
+    }>;
+  };
+
+  const feature = data.features[0];
+  return {
+    coords: feature.geometry.coordinates,
+    distanceKm: feature.properties.summary.distance,
+    durationSec: feature.properties.summary.duration,
   };
 }
 
@@ -121,12 +233,52 @@ export async function fetchRoute(params: RouteParams): Promise<RouteResult> {
     (params.end.lat === params.start.lat && params.end.lng === params.start.lng);
 
   const profile = params.sport === "cycling-road" ? "cycling-road" : "foot-walking";
+  const isRunning = profile === "foot-walking";
+  const distTolerance = isRunning ? DIST_TOLERANCE_RUNNING : DIST_TOLERANCE_CYCLING;
 
   // ── Mode boucle ──────────────────────────────────────────────────────────
   if (isLoop) {
-    const isRunning = profile === "foot-walking";
+    // Étapes manuelles : on calcule un itinéraire fixe départ → étapes → départ,
+    // round_trip ne supportant pas de points de passage imposés. Chaque tronçon
+    // est calculé séparément en évitant les routes déjà parcourues, pour que le
+    // retour ne reproduise pas le trajet aller (vraie boucle, pas d'aller-retour).
+    if (params.waypoints && params.waypoints.length > 0) {
+      let points = [params.start, ...params.waypoints, params.start];
+
+      // Si le trajet via les étapes est nettement plus court que la distance
+      // cible, on ajoute un détour aléatoire (même mécanisme que la
+      // régénération) pour s'en approcher.
+      let directKm = 0;
+      for (let i = 0; i < points.length - 1; i++) {
+        directKm += haversineKm(points[i].lat, points[i].lng, points[i + 1].lat, points[i + 1].lng);
+      }
+      const estimatedRoadKm = directKm * ROAD_DETOUR_FACTOR;
+      const missingKm = params.targetDistanceKm - estimatedRoadKm;
+      if (missingKm > params.targetDistanceKm * distTolerance) {
+        const detour = randomWaypoint(params.start, missingKm * 2);
+        points = [params.start, detour, ...params.waypoints, params.start];
+      }
+
+      const avoidPolygons: [number, number][][][] = [];
+      const allCoords: [number, number, number][] = [];
+      let totalDistanceKm = 0;
+      let totalDurationSec = 0;
+
+      for (let i = 0; i < points.length - 1; i++) {
+        const leg = await fetchLeg(points[i], points[i + 1], profile, apiKey, avoidPolygons);
+        const legCoords = allCoords.length > 0 ? leg.coords.slice(1) : leg.coords;
+        allCoords.push(...legCoords);
+        totalDistanceKm += leg.distanceKm;
+        totalDurationSec += leg.durationSec;
+
+        const simplified = simplifyCoords(leg.coords, CORRIDOR_MAX_POINTS);
+        avoidPolygons.push(...buildAvoidCorridor(simplified, CORRIDOR_WIDTH_M));
+      }
+
+      return buildRouteResult(allCoords, totalDistanceKm, totalDurationSec);
+    }
+
     const nCandidates = isRunning ? N_CANDIDATES_RUNNING : N_CANDIDATES_CYCLING;
-    const distTolerance = isRunning ? DIST_TOLERANCE_RUNNING : DIST_TOLERANCE_CYCLING;
     const regenOffset = (params.seed ?? 0) * nCandidates;
 
     const seeds = Array.from({ length: nCandidates }, (_, i) => regenOffset + i);
@@ -164,16 +316,19 @@ export async function fetchRoute(params: RouteParams): Promise<RouteResult> {
   }
 
   // ── Mode A→B ─────────────────────────────────────────────────────────────
-  const waypoints: [number, number][] = [[params.start.lng, params.start.lat]];
-  if (params.randomWaypoints) {
-    for (const wp of params.randomWaypoints) waypoints.push([wp.lng, wp.lat]);
+  const coords: [number, number][] = [[params.start.lng, params.start.lat]];
+  if (params.waypoints) {
+    for (const wp of params.waypoints) coords.push([wp.lng, wp.lat]);
   }
-  waypoints.push([params.end!.lng, params.end!.lat]);
+  if (params.randomWaypoints) {
+    for (const wp of params.randomWaypoints) coords.push([wp.lng, wp.lat]);
+  }
+  coords.push([params.end!.lng, params.end!.lat]);
 
   const res = await fetch(`${ORS_BASE}/v2/directions/${profile}/geojson`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: apiKey },
-    body: JSON.stringify({ coordinates: waypoints, elevation: true, instructions: false, units: "km" }),
+    body: JSON.stringify({ coordinates: coords, elevation: true, instructions: false, units: "km" }),
   });
 
   if (!res.ok) {

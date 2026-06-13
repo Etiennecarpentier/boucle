@@ -25,10 +25,11 @@ export default function HomePage() {
   const [startCoords, setStartCoords] = useState<LatLng | null>(null);
   const [endText, setEndText] = useState("");
   const [endCoords, setEndCoords] = useState<LatLng | null>(null);
-  const [mapClickMode, setMapClickMode] = useState<"start" | "end" | null>(null);
+  const [waypoints, setWaypoints] = useState<{ text: string; coords: LatLng | null }[]>([]);
+  const [mapClickMode, setMapClickMode] = useState<"start" | "end" | number | null>(null);
 
   // Ref used by handleMapClick to always read the latest mapClickMode without recreating the callback
-  const mapClickModeRef = useRef<"start" | "end" | null>(null);
+  const mapClickModeRef = useRef<"start" | "end" | number | null>(null);
   mapClickModeRef.current = mapClickMode;
 
   const generate = useCallback(async (params: RouteParams) => {
@@ -88,22 +89,52 @@ export default function HomePage() {
 
   const handleMapClick = useCallback(async (latlng: LatLng) => {
     const mode = mapClickModeRef.current;
-    if (!mode) return;
+    if (mode === null) return;
     setMapClickMode(null);
 
     const placeholder = `${latlng.lat.toFixed(5)}, ${latlng.lng.toFixed(5)}`;
     if (mode === "start") {
       setStartCoords(latlng);
       setStartText(placeholder);
-    } else {
+    } else if (mode === "end") {
       setEndCoords(latlng);
       setEndText(placeholder);
+    } else {
+      setWaypoints((wps) => wps.map((wp, i) => (i === mode ? { text: placeholder, coords: latlng } : wp)));
     }
 
     const label = await reverseGeocode(latlng.lat, latlng.lng);
     if (mode === "start") setStartText(label);
-    else setEndText(label);
+    else if (mode === "end") setEndText(label);
+    else setWaypoints((wps) => wps.map((wp, i) => (i === mode ? { ...wp, text: label } : wp)));
   }, []);
+
+  const handleAddWaypoint = useCallback(() => {
+    setWaypoints((wps) => [...wps, { text: "", coords: null }]);
+  }, []);
+
+  const handleRemoveWaypoint = useCallback((index: number) => {
+    setWaypoints((wps) => wps.filter((_, i) => i !== index));
+    setMapClickMode((mode) => {
+      if (typeof mode !== "number") return mode;
+      if (mode === index) return null;
+      return mode > index ? mode - 1 : mode;
+    });
+  }, []);
+
+  const handleWaypointChange = useCallback((index: number, text: string, coords?: LatLng) => {
+    setWaypoints((wps) => wps.map((wp, i) => (i === index ? { text, coords: coords ?? null } : wp)));
+  }, []);
+
+  const waypointCoords = waypoints.filter((wp) => wp.coords).map((wp) => wp.coords as LatLng);
+
+  // En boucle avec étapes fixes, le tracé est déterministe : "proposer un autre
+  // tracé" donnerait toujours le même résultat, on masque donc le bouton.
+  const lastParams = lastParamsRef.current;
+  const isLoopParams = lastParams
+    ? !lastParams.end || (lastParams.end.lat === lastParams.start.lat && lastParams.end.lng === lastParams.start.lng)
+    : false;
+  const hasFixedWaypoints = (lastParams?.waypoints?.length ?? 0) > 0;
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-gray-100">
@@ -114,6 +145,10 @@ export default function HomePage() {
         endText={endText}
         endCoords={endCoords}
         onEndChange={(text, coords) => { setEndText(text); setEndCoords(coords ?? null); }}
+        waypoints={waypoints}
+        onAddWaypoint={handleAddWaypoint}
+        onRemoveWaypoint={handleRemoveWaypoint}
+        onWaypointChange={handleWaypointChange}
         mapClickMode={mapClickMode}
         onSetMapClickMode={setMapClickMode}
         onGenerate={generate}
@@ -123,7 +158,7 @@ export default function HomePage() {
         hasRoute={!!route}
         loading={loading}
         error={error}
-        canRegenerate={!!route && !loading}
+        canRegenerate={!!route && !loading && !(isLoopParams && hasFixedWaypoints)}
         canReverse={isRouteLoop && !!route && !loading}
       />
 
@@ -134,6 +169,7 @@ export default function HomePage() {
             route={route}
             start={startCoords}
             end={endCoords}
+            waypoints={waypointCoords}
             hoverPoint={hoverPoint}
             onMapClick={handleMapClick}
             mapClickMode={mapClickMode}

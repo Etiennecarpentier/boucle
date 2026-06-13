@@ -11,8 +11,12 @@ interface Props {
   endText: string;
   endCoords: LatLng | null;
   onEndChange: (text: string, coords?: LatLng) => void;
-  mapClickMode: "start" | "end" | null;
-  onSetMapClickMode: (mode: "start" | "end" | null) => void;
+  waypoints: { text: string; coords: LatLng | null }[];
+  onAddWaypoint: () => void;
+  onRemoveWaypoint: (index: number) => void;
+  onWaypointChange: (index: number, text: string, coords?: LatLng) => void;
+  mapClickMode: "start" | "end" | number | null;
+  onSetMapClickMode: (mode: "start" | "end" | number | null) => void;
   onGenerate: (params: RouteParams) => void;
   onRegenerate: () => void;
   onExportGpx: () => void;
@@ -27,6 +31,7 @@ interface Props {
 export default function ControlPanel({
   startText, startCoords, onStartChange,
   endText, endCoords, onEndChange,
+  waypoints, onAddWaypoint, onRemoveWaypoint, onWaypointChange,
   mapClickMode, onSetMapClickMode,
   onGenerate, onRegenerate, onExportGpx, onReverseRoute,
   hasRoute, loading, error, canRegenerate, canReverse,
@@ -65,12 +70,17 @@ export default function ControlPanel({
         : timeHours * speedKmh
       : distanceKm;
 
+    const validWaypoints = waypoints
+      .filter((wp) => wp.coords)
+      .map((wp) => wp.coords as LatLng);
+
     onGenerate({
       start: startCoords,
       end: endCoords,
       sport,
       targetDistanceKm: effectiveDistanceKm,
       steepnessLevel: steepnessLevel ?? undefined,
+      waypoints: validWaypoints.length > 0 ? validWaypoints : undefined,
     });
   }
 
@@ -85,6 +95,7 @@ export default function ControlPanel({
     sport, setSport: handleSportChange,
     startText, startCoords, onStartChange,
     endText, endCoords, onEndChange,
+    waypoints, onAddWaypoint, onRemoveWaypoint, onWaypointChange,
     handleLocate, handleLocateEnd,
     mapClickMode, onSetMapClickMode,
     distanceKm, setDistanceKm,
@@ -139,10 +150,14 @@ interface PanelContentProps {
   endText: string;
   endCoords: LatLng | null;
   onEndChange: (text: string, coords?: LatLng) => void;
+  waypoints: { text: string; coords: LatLng | null }[];
+  onAddWaypoint: () => void;
+  onRemoveWaypoint: (index: number) => void;
+  onWaypointChange: (index: number, text: string, coords?: LatLng) => void;
   handleLocate: () => void;
   handleLocateEnd: () => void;
-  mapClickMode: "start" | "end" | null;
-  onSetMapClickMode: (mode: "start" | "end" | null) => void;
+  mapClickMode: "start" | "end" | number | null;
+  onSetMapClickMode: (mode: "start" | "end" | number | null) => void;
   distanceKm: number;
   setDistanceKm: (v: number) => void;
   useTime: boolean;
@@ -173,6 +188,7 @@ function PanelContent({
   sport, setSport,
   startText, startCoords, onStartChange,
   endText, endCoords, onEndChange,
+  waypoints, onAddWaypoint, onRemoveWaypoint, onWaypointChange,
   handleLocate, handleLocateEnd,
   mapClickMode, onSetMapClickMode,
   distanceKm, setDistanceKm,
@@ -244,9 +260,36 @@ function PanelContent({
         pinActive={mapClickMode === "end"}
       />
 
+      {waypoints.map((wp, i) => (
+        <AddressInput
+          key={i}
+          label={`Étape ${i + 1}`}
+          placeholder="Adresse, ville…"
+          value={wp.text}
+          coords={wp.coords}
+          onChange={(text, coords) => onWaypointChange(i, text, coords)}
+          onPin={() => onSetMapClickMode(mapClickMode === i ? null : i)}
+          pinActive={mapClickMode === i}
+          onRemove={() => onRemoveWaypoint(i)}
+        />
+      ))}
+
+      <button
+        type="button"
+        onClick={onAddWaypoint}
+        className="w-full py-2 rounded-lg border border-dashed border-gray-300 text-gray-500 hover:border-blue-400 hover:text-blue-600 text-sm font-medium transition-colors flex items-center justify-center gap-1.5"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+        </svg>
+        Ajouter une étape
+      </button>
+
       {isLoop && startCoords && (
         <p className="text-xs text-blue-600 bg-blue-50 rounded-lg px-3 py-2">
-          ↺ Mode boucle — l&apos;itinéraire repart du même point
+          {waypoints.length > 0
+            ? "↺ Mode boucle — l'itinéraire suit les étapes ajoutées puis revient au départ"
+            : "↺ Mode boucle — l'itinéraire repart du même point"}
         </p>
       )}
 

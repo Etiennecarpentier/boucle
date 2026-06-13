@@ -7,9 +7,10 @@ interface Props {
   route: RouteResult | null;
   start: LatLng | null;
   end: LatLng | null;
+  waypoints?: LatLng[];
   hoverPoint?: LatLng | null;
   onMapClick?: (latlng: LatLng) => void;
-  mapClickMode?: "start" | "end" | null;
+  mapClickMode?: "start" | "end" | number | null;
 }
 
 function bearing(a: LatLng, b: LatLng): number {
@@ -55,7 +56,7 @@ function makeCircleIcon(L: typeof import("leaflet"), color: string) {
   });
 }
 
-export default function MapView({ route, start, end, hoverPoint, onMapClick, mapClickMode }: Props) {
+export default function MapView({ route, start, end, waypoints, hoverPoint, onMapClick, mapClickMode }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const mapRef = useRef<any>(null);
@@ -149,8 +150,11 @@ export default function MapView({ route, start, end, hoverPoint, onMapClick, map
       if (end && (end.lat !== start?.lat || end.lng !== start?.lng)) {
         markersRef.current.push(L.marker([end.lat, end.lng], { icon: makeCircleIcon(L, "#ef4444") }).addTo(mapRef.current));
       }
+      for (const wp of waypoints ?? []) {
+        markersRef.current.push(L.marker([wp.lat, wp.lng], { icon: makeCircleIcon(L, "#f97316") }).addTo(mapRef.current));
+      }
     });
-  }, [route, start, end]);
+  }, [route, start, end, waypoints]);
 
   // Standalone markers when no route yet
   useEffect(() => {
@@ -171,15 +175,23 @@ export default function MapView({ route, start, end, hoverPoint, onMapClick, map
           L.marker([end.lat, end.lng], { icon: makeCircleIcon(L, "#ef4444") }).addTo(mapRef.current)
         );
       }
+      for (const wp of waypoints ?? []) {
+        standaloneMarkersRef.current.push(
+          L.marker([wp.lat, wp.lng], { icon: makeCircleIcon(L, "#f97316") }).addTo(mapRef.current)
+        );
+      }
 
-      if (start && end && (end.lat !== start.lat || end.lng !== start.lng)) {
-        const bounds = L.latLngBounds([[start.lat, start.lng], [end.lat, end.lng]]);
+      const boundsPoints: LatLng[] = [...(start ? [start] : []), ...(waypoints ?? [])];
+      if (end && (end.lat !== start?.lat || end.lng !== start?.lng)) boundsPoints.push(end);
+
+      if (boundsPoints.length > 1) {
+        const bounds = L.latLngBounds(boundsPoints.map((p) => [p.lat, p.lng] as [number, number]));
         mapRef.current.fitBounds(bounds, { padding: [80, 80] });
       } else if (start) {
         mapRef.current.setView([start.lat, start.lng], Math.max(mapRef.current.getZoom(), 13));
       }
     });
-  }, [start, end, route]);
+  }, [start, end, route, waypoints]);
 
   // Hover marker on elevation profile
   useEffect(() => {
@@ -210,9 +222,10 @@ export default function MapView({ route, start, end, hoverPoint, onMapClick, map
   return (
     <div className="relative w-full h-full">
       <div ref={containerRef} className="w-full h-full" />
-      {mapClickMode && (
+      {mapClickMode !== null && mapClickMode !== undefined && (
         <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[1000] bg-blue-600 text-white text-sm font-semibold px-4 py-2 rounded-full shadow-lg pointer-events-none select-none">
-          Cliquez sur la carte pour placer le {mapClickMode === "start" ? "départ" : "l'arrivée"}
+          Cliquez sur la carte pour placer{" "}
+          {mapClickMode === "start" ? "le départ" : mapClickMode === "end" ? "l'arrivée" : `l'étape ${mapClickMode + 1}`}
         </div>
       )}
     </div>

@@ -12,6 +12,8 @@ export interface RouteParams {
   targetDistanceKm: number;
   /** 0 = plat, 1 = modéré, 2 = vallonné, 3 = montagneux — vélo seulement */
   steepnessLevel?: 0 | 1 | 2 | 3;
+  /** Étapes ajoutées manuellement par l'utilisateur, à suivre dans l'ordre */
+  waypoints?: LatLng[];
   /** Waypoints aléatoires injectés pour la regénération (mode A→B) */
   randomWaypoints?: LatLng[];
   /** Seed ORS round_trip pour varier les boucles */

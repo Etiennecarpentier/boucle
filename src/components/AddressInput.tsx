@@ -13,9 +13,10 @@ interface Props {
   onLocate?: () => void;
   onPin?: () => void;
   pinActive?: boolean;
+  onRemove?: () => void;
 }
 
-export default function AddressInput({ label, placeholder, value, coords, onChange, onLocate, onPin, pinActive }: Props) {
+export default function AddressInput({ label, placeholder, value, coords, onChange, onLocate, onPin, pinActive, onRemove }: Props) {
   const [suggestions, setSuggestions] = useState<GeocodingResult[]>([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -120,6 +121,19 @@ export default function AddressInput({ label, placeholder, value, coords, onChan
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
               <path d="M20.5 3l-.16.03L15 5.1 9 3 3.36 4.9c-.21.07-.36.25-.36.48V20.5c0 .28.22.5.5.5l.16-.03L9 18.9l6 2.1 5.64-1.9c.21-.07.36-.25.36-.48V3.5c0-.28-.22-.5-.5-.5zM15 19l-6-2.11V5l6 2.11V19z"/>
+            </svg>
+          </button>
+        )}
+
+        {onRemove && (
+          <button
+            type="button"
+            onClick={onRemove}
+            title="Supprimer cette étape"
+            className="px-3 py-2 rounded-lg bg-gray-100 hover:bg-red-50 border border-gray-300 text-gray-600 hover:text-red-600 transition-colors shrink-0"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
         )}
