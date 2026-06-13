@@ -121,10 +121,10 @@ export default function ControlPanel({
       </aside>
 
       {/* Mobile bottom sheet */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 z-20">
+      <div className="md:hidden fixed bottom-0 left-0 right-0 z-20 pb-[env(safe-area-inset-bottom)] bg-blue-600">
         <button
           onClick={() => setIsOpen(!isOpen)}
-          className="w-full bg-blue-600 text-white py-3 px-4 flex items-center justify-between font-semibold"
+          className="w-full text-white py-3 px-4 flex items-center justify-between font-semibold"
         >
           <span>{loading ? "Calcul en cours…" : "Paramètres de l'itinéraire"}</span>
           <svg

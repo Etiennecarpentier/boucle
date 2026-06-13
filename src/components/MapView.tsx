@@ -223,7 +223,7 @@ export default function MapView({ route, start, end, waypoints, hoverPoint, onMa
     <div className="relative w-full h-full">
       <div ref={containerRef} className="w-full h-full" />
       {mapClickMode !== null && mapClickMode !== undefined && (
-        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[1000] bg-blue-600 text-white text-sm font-semibold px-4 py-2 rounded-full shadow-lg pointer-events-none select-none">
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[1000] max-w-[calc(100%-1.5rem)] text-center bg-blue-600 text-white text-sm font-semibold px-4 py-2 rounded-2xl shadow-lg pointer-events-none select-none">
           Cliquez sur la carte pour placer{" "}
           {mapClickMode === "start" ? "le départ" : mapClickMode === "end" ? "l'arrivée" : `l'étape ${mapClickMode + 1}`}
         </div>

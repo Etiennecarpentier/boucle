@@ -137,7 +137,7 @@ export default function HomePage() {
   const hasFixedWaypoints = (lastParams?.waypoints?.length ?? 0) > 0;
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-gray-100">
+    <div className="flex h-dvh w-full overflow-hidden bg-gray-100">
       <ControlPanel
         startText={startText}
         startCoords={startCoords}
@@ -163,7 +163,7 @@ export default function HomePage() {
       />
 
       {/* Map area */}
-      <main className="flex-1 flex flex-col min-h-0 relative">
+      <main className="flex-1 flex flex-col min-h-0 relative pb-[calc(3rem+env(safe-area-inset-bottom))] md:pb-0">
         <div className="flex-1 min-h-0">
           <MapView
             route={route}
