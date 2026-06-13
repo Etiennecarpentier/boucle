@@ -265,30 +265,38 @@ async function fetchLoopCandidate(
   apiKey: string,
   avoidBadSurfaces: boolean,
 ): Promise<{ result: RouteResult; badRatio: number } | null> {
-  try {
-    const body: Record<string, unknown> = {
-      coordinates: [[start.lng, start.lat]],
-      options: {
-        round_trip: {
-          length: Math.round(targetDistanceKm * 1000),
-          points: 3,
-          seed,
-        },
+  const body: Record<string, unknown> = {
+    coordinates: [[start.lng, start.lat]],
+    options: {
+      round_trip: {
+        length: Math.round(targetDistanceKm * 1000),
+        points: 3,
+        seed,
       },
-      elevation: true,
-      instructions: false,
-      units: "km",
-    };
-    if (avoidBadSurfaces) body.extra_info = ["surface"];
+    },
+    elevation: true,
+    instructions: false,
+    units: "km",
+  };
+  if (avoidBadSurfaces) body.extra_info = ["surface"];
 
-    const res = await fetch(`${ORS_BASE}/v2/directions/${profile}/geojson`, {
+  let res: Response;
+  try {
+    res = await fetch(`${ORS_BASE}/v2/directions/${profile}/geojson`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: apiKey },
       body: JSON.stringify(body),
     });
-    if (res.status === 429) throw new Error("quota");
-    if (res.status >= 500) throw new Error("server");
-    if (!res.ok) return null;
+  } catch {
+    return null;
+  }
+
+  if (res.status === 429) throw new Error("quota");
+  if (res.status === 401 || res.status === 403) throw new Error("auth");
+  if (res.status >= 500) throw new Error("server");
+  if (!res.ok) return null;
+
+  try {
     const feature = ((await res.json()) as ORSResponse).features[0];
     return {
       result: buildRouteResult(feature.geometry.coordinates, feature.properties.summary.distance, feature.properties.summary.duration),
@@ -366,6 +374,11 @@ export async function fetchRoute(params: RouteParams): Promise<RouteResult> {
       r => r.status === "rejected" && (r.reason as Error)?.message === "quota"
     );
     if (isQuotaError) throw new Error("Limite de requêtes ORS atteinte. Attendez quelques secondes puis réessayez.");
+
+    const isAuthError = settled.some(
+      r => r.status === "rejected" && (r.reason as Error)?.message === "auth"
+    );
+    if (isAuthError) throw new Error("Clé API ORS invalide ou non autorisée. Vérifiez la variable NEXT_PUBLIC_ORS_API_KEY.");
 
     const valid = settled
       .filter((r): r is PromiseFulfilledResult<{ result: RouteResult; badRatio: number }> => r.status === "fulfilled" && r.value !== null)
