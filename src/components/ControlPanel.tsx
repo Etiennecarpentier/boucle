@@ -319,16 +319,34 @@ function PanelContent({
 
         {!useTime ? (
           <div>
-            <div className="flex justify-between text-xs text-gray-500 mb-1">
+            <div className="flex justify-between items-center text-xs text-gray-500 mb-1">
               <span>Distance cible</span>
-              <span className="font-semibold text-gray-700">{distanceKm} km</span>
+              <div className="flex items-center gap-1">
+                <input
+                  type="number"
+                  min={1}
+                  max={500}
+                  step={1}
+                  value={distanceKm}
+                  onChange={(e) => {
+                    const v = +e.target.value;
+                    if (!Number.isNaN(v)) setDistanceKm(v);
+                  }}
+                  onBlur={(e) => {
+                    const v = Math.round(+e.target.value);
+                    setDistanceKm(Number.isFinite(v) ? Math.min(500, Math.max(1, v)) : 1);
+                  }}
+                  className="w-16 border border-gray-300 rounded-lg px-2 py-1 text-right text-sm font-semibold text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <span className="font-semibold text-gray-700">km</span>
+              </div>
             </div>
             <input
               type="range"
               min={sport === "foot-walking" ? 3 : 10}
               max={sport === "foot-walking" ? 50 : 300}
               step={sport === "foot-walking" ? 1 : 5}
-              value={distanceKm}
+              value={Math.min(sport === "foot-walking" ? 50 : 300, Math.max(sport === "foot-walking" ? 3 : 10, distanceKm))}
               onChange={(e) => setDistanceKm(+e.target.value)}
               className="w-full accent-blue-600"
             />
@@ -410,29 +428,17 @@ function PanelContent({
           <label className="block text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">
             Difficulté
           </label>
-          <div className="grid grid-cols-2 gap-2">
-            {([
-              [null,  "—",          "Peu importe",  "text-gray-500"],
-              [0,     "🟢 Plat",     "< 8 m/km",     "text-green-600"],
-              [1,     "🟡 Modéré",   "8–15 m/km",    "text-yellow-600"],
-              [2,     "🟠 Vallonné", "15–25 m/km",   "text-orange-500"],
-              [3,     "🔴 Montagneux","> 25 m/km",   "text-red-600"],
-            ] as [0|1|2|3|null, string, string, string][]).map(([val, label, hint, color]) => (
-              <button
-                key={String(val)}
-                type="button"
-                onClick={() => setSteepnessLevel(steepnessLevel === val ? null : val)}
-                className={`flex flex-col items-start px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
-                  steepnessLevel === val
-                    ? "bg-blue-600 text-white border-blue-600"
-                    : "bg-white border-gray-300 hover:border-blue-400"
-                } ${val === null ? "col-span-2" : ""}`}
-              >
-                <span className={steepnessLevel === val ? "text-white" : color}>{label}</span>
-                <span className={`text-xs font-normal ${steepnessLevel === val ? "text-blue-100" : "text-gray-400"}`}>{hint}</span>
-              </button>
-            ))}
-          </div>
+          <select
+            value={steepnessLevel === null ? "" : steepnessLevel}
+            onChange={(e) => setSteepnessLevel(e.target.value === "" ? null : (+e.target.value as 0 | 1 | 2 | 3))}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="">Peu importe</option>
+            <option value={0}>Plat (&lt; 8 m/km)</option>
+            <option value={1}>Modéré (8–15 m/km)</option>
+            <option value={2}>Vallonné (15–25 m/km)</option>
+            <option value={3}>Montagneux (&gt; 25 m/km)</option>
+          </select>
         </div>
       )}
 
